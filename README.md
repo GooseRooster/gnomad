@@ -212,10 +212,10 @@ As always, feature requests, PRs, issues, and bug reports welcome. If the scope 
 
 ## Special Thanks
 
-[Rewaita](https://github.com/SwordPuffin/Rewaita) - please check it out. I was heavily inspired by the approach Rewaita takes to theming and the CSS templates were directly responsible for even making gnomad possible. Try it, star it!!!
-[Tinted Theming](https://github.com/tinted-theming/home.git) - the incredible base* and tinted* colorscheme support and scheme repository.
-[Gowall](https://github.com/tinted-theming/home.git) - Wallpaper color scheming. What's not to love?
-[Ratatui](https://ratatui.rs) - Cookin
+- [Rewaita](https://github.com/SwordPuffin/Rewaita) - please check it out. I was heavily inspired by the approach Rewaita takes to theming and the CSS templates were directly responsible for even making gnomad possible. Try it, star it!!!
+- [Tinted Theming](https://github.com/tinted-theming/home.git) - the incredible base* and tinted* colorscheme support and scheme repository.
+- [Gowall](https://github.com/tinted-theming/home.git) - Wallpaper color scheming. What's not to love?
+- [Ratatui](https://ratatui.rs) - Cookin
 
 ## License
 
