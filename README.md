@@ -1,5 +1,8 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GooseRooster/gnomad)
 
+# Important note
+Currently still in heavy development and testing. A release will be published soon.
+
 # gnomad
 
 Your GNOME theming companion - right in the terminal. Built in Rust with [Ratatui](https://ratatui.rs), leveraging [gowall](https://github.com/Achno/gowall) and [tinty](https://github.com/tinted-theming/tinty).
@@ -188,7 +191,7 @@ gnomad --apply <slug>     # headless scheme apply and exit (e.g. for scripting)
 
 ## AI Disclosure
 The code in this repository was written with assistance from AI.
-All code, whether AI-assisted, hand-written or otherwise, is thoroughly tested and verified and all contributors will take ownership of their code.
+All code, whether AI-assisted, hand-written or otherwise, is thoroughly tested and verified and all contributors will take ownership of their code, before releases are published.
 
 
 ## Contributing
@@ -203,6 +206,16 @@ As always, feature requests, PRs, issues, and bug reports welcome. If the scope 
 - Additional GNOME Tweaks surface (icon theme, fonts)
 
 ---
+
+## Third Party Contributions
+[Rewaita](https://github.com/SwordPuffin/Rewaita) - CSS templates
+
+## Special Thanks
+
+[Rewaita](https://github.com/SwordPuffin/Rewaita) - please check it out. I was heavily inspired by the approach Rewaita takes to theming and the CSS templates were directly responsible for even making gnomad possible. Try it, star it!!!
+[Tinted Theming](https://github.com/tinted-theming/home.git) - the incredible base* and tinted* colorscheme support and scheme repository.
+[Gowall](https://github.com/tinted-theming/home.git) - Wallpaper color scheming. What's not to love?
+[Ratatui](https://ratatui.rs) - Cookin
 
 ## License
 
