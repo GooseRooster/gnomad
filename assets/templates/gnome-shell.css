@@ -1,3 +1,11 @@
+/*
+ * Adapted from Rewaita (https://github.com/SwordPuffin/Rewaita)
+ * Copyright (C) SwordPuffin
+ * Licensed under GPL-3.0-or-later
+ *
+ * Modified by GooseRooster for gnomad — converted to base* slot templating, 2026
+ */
+
 /*window_fg_color: generic text color */
 /*window_bg_color: generic background color */
 /*border_color: accent color if window border is enabled*/
