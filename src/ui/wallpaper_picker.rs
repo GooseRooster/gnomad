@@ -1,48 +1,54 @@
 use crate::pipeline::wallpaper_cache;
-use crate::state::AppState;
+use crate::state::{AppMode, AppState};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
+use ratatui_image::{StatefulImage, protocol::StatefulProtocol};
 use std::path::Path;
 
-pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn render(
+    f: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    wallpaper_dir: &Path,
+    wallpaper_cache_dir: &Path,
+    image_proto: Option<&mut StatefulProtocol>,
+) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
         .split(area);
 
-    render_list(f, chunks[0], state);
-    render_image_preview(f, chunks[1], state);
+    render_list(f, chunks[0], state, wallpaper_dir, wallpaper_cache_dir);
+    render_preview(f, chunks[1], state, wallpaper_cache_dir, image_proto);
+
+    if state.mode == AppMode::EditingDir {
+        render_dir_prompt(f, area, state);
+    }
 }
 
-fn render_list(f: &mut Frame, area: Rect, state: &AppState) {
+fn render_list(
+    f: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    wallpaper_dir: &Path,
+    wallpaper_cache_dir: &Path,
+) {
     let items: Vec<ListItem> = state
         .wallpapers
         .iter()
         .map(|p| {
-            let filename = p
-                .file_name()
-                .and_then(|f| f.to_str())
-                .unwrap_or("?");
+            let filename = p.file_name().and_then(|f| f.to_str()).unwrap_or("?");
 
             let cached = state
                 .active_scheme
                 .as_ref()
                 .map(|s| {
-                    let cache_dir = &s.slug;
-                    // Check against the wallpaper_cache
-                    wallpaper_cache::is_cached(
-                        p,
-                        &dirs::data_local_dir()
-                            .unwrap_or_default()
-                            .join("gnomad")
-                            .join("wallpapers")
-                            .join(cache_dir),
-                    )
+                    wallpaper_cache::is_cached(p, &wallpaper_cache_dir.join(&s.slug))
                 })
                 .unwrap_or(false);
 
@@ -52,13 +58,13 @@ fn render_list(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::styled("[raw]    ", Style::default().fg(Color::DarkGray))
             };
 
-            let active = state
+            let is_current = state
                 .current_wallpaper
                 .as_deref()
-                .map(|cw| same_file(cw, p))
+                .map(|cw| same_filename(cw, p))
                 .unwrap_or(false);
 
-            let name_style = if active {
+            let name_style = if is_current {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -71,7 +77,7 @@ fn render_list(f: &mut Frame, area: Rect, state: &AppState) {
         })
         .collect();
 
-    let dir_label = "~/Pictures/Wallpapers";
+    let dir_label = wallpaper_dir.to_string_lossy();
     let block = Block::default()
         .borders(Borders::ALL)
         .title(format!(" WALLPAPERS — {dir_label} "));
@@ -87,42 +93,64 @@ fn render_list(f: &mut Frame, area: Rect, state: &AppState) {
     f.render_stateful_widget(list, area, &mut list_state);
 }
 
-fn render_image_preview(f: &mut Frame, area: Rect, state: &AppState) {
+fn render_preview(
+    f: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    wallpaper_cache_dir: &Path,
+    image_proto: Option<&mut StatefulProtocol>,
+) {
     let block = Block::default().borders(Borders::ALL).title(" PREVIEW ");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let Some(wallpaper) = state.selected_wallpaper() else {
-        let placeholder = Paragraph::new("\n  No wallpaper selected")
-            .style(Style::default().fg(Color::DarkGray));
-        f.render_widget(placeholder, inner);
+        f.render_widget(
+            Paragraph::new("\n  No wallpaper selected")
+                .style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
         return;
     };
 
-    // Show filename + cache status as text placeholder.
-    // Full Sixel/KGP image rendering is handled in app.rs via ratatui-image
-    // when the terminal supports it.
-    let filename = wallpaper
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or("?");
-
-    let cached = state.active_scheme.as_ref().map(|s| {
-        let cache_dir = dirs::data_local_dir()
-            .unwrap_or_default()
-            .join("gnomad")
-            .join("wallpapers")
-            .join(&s.slug);
-        wallpaper_cache::is_cached(wallpaper, &cache_dir)
-    }).unwrap_or(false);
-
-    let status = if cached { "converted" } else { "original" };
-    let info = format!("\n  {filename}\n\n  [{status}]");
-    let para = Paragraph::new(info).style(Style::default().fg(Color::White));
-    f.render_widget(para, inner);
+    if let Some(proto) = image_proto {
+        f.render_stateful_widget(StatefulImage::new(None), inner, proto);
+    } else {
+        // Fallback text when terminal has no graphics support
+        let filename = wallpaper.file_name().and_then(|f| f.to_str()).unwrap_or("?");
+        let cached = state.active_scheme.as_ref().map(|s| {
+            wallpaper_cache::is_cached(wallpaper, &wallpaper_cache_dir.join(&s.slug))
+        }).unwrap_or(false);
+        let status = if cached { "converted" } else { "original" };
+        let info = format!("\n  {filename}\n\n  [{status}]\n\n  (no graphics support detected)");
+        f.render_widget(
+            Paragraph::new(info).style(Style::default().fg(Color::White)),
+            inner,
+        );
+    }
 }
 
-fn same_file(a: &Path, b: &Path) -> bool {
+/// Overlay prompt for typing a new wallpaper directory path.
+fn render_dir_prompt(f: &mut Frame, area: Rect, state: &AppState) {
+    let vert = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
+        .split(area);
+
+    let prompt_area = vert[1];
+    f.render_widget(Clear, prompt_area);
+
+    let text = format!(" Change wallpaper dir: {}_", state.dir_input);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .style(Style::default().fg(Color::Yellow));
+    let para = Paragraph::new(text)
+        .block(block)
+        .style(Style::default().fg(Color::Yellow));
+    f.render_widget(para, prompt_area);
+}
+
+fn same_filename(a: &Path, b: &Path) -> bool {
     a.file_name() == b.file_name()
 }
 

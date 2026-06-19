@@ -1,39 +1,11 @@
 use anyhow::{Context, Result};
 use std::path::Path;
-use zbus::Connection;
-use zbus::proxy;
 
-#[proxy(
-    interface = "org.gnome.desktop.interface",
-    default_service = "org.gnome.desktop.interface",
-    default_path = "/org/gnome/desktop/interface"
-)]
-trait DesktopInterface {
-    #[zbus(property)]
-    fn picture_uri(&self) -> zbus::Result<String>;
-    #[zbus(property)]
-    fn set_picture_uri(&self, uri: &str) -> zbus::Result<()>;
-
-    #[zbus(property)]
-    fn picture_uri_dark(&self) -> zbus::Result<String>;
-    #[zbus(property)]
-    fn set_picture_uri_dark(&self, uri: &str) -> zbus::Result<()>;
-
-    #[zbus(property)]
-    fn color_scheme(&self) -> zbus::Result<String>;
-    #[zbus(property)]
-    fn set_color_scheme(&self, scheme: &str) -> zbus::Result<()>;
-}
-
-pub struct GnomeInterface {
-    #[allow(dead_code)]
-    conn: Connection,
-}
+pub struct GnomeInterface;
 
 impl GnomeInterface {
     pub async fn new() -> Result<Self> {
-        let conn = Connection::session().await.context("connecting to session dbus")?;
-        Ok(Self { conn })
+        Ok(Self)
     }
 
     pub async fn set_wallpaper(&self, path: &Path) -> Result<()> {
@@ -47,7 +19,9 @@ impl GnomeInterface {
 
     /// Toggle color-scheme to force GNOME Shell to reload CSS, then restore.
     pub async fn reload_shell_css(&self) -> Result<()> {
-        let current = self.gsettings_get("org.gnome.desktop.interface", "color-scheme").await?;
+        let current = self
+            .gsettings_get("org.gnome.desktop.interface", "color-scheme")
+            .await?;
         let current = current.trim().trim_matches('\'');
 
         let opposite = if current == "prefer-dark" {
@@ -63,7 +37,6 @@ impl GnomeInterface {
         )
         .await?;
 
-        // Brief pause to let the shell process the change
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         self.gsettings_set(
@@ -76,7 +49,6 @@ impl GnomeInterface {
         Ok(())
     }
 
-    /// Read the current GNOME color-scheme preference.
     pub async fn get_color_scheme(&self) -> Result<String> {
         let raw = self
             .gsettings_get("org.gnome.desktop.interface", "color-scheme")
@@ -84,19 +56,13 @@ impl GnomeInterface {
         Ok(raw.trim().trim_matches('\'').to_string())
     }
 
-    /// Check whether the User Themes extension is enabled.
     pub async fn is_user_themes_enabled(&self) -> bool {
-        // Query via gdbus / gsettings — extension is enabled if its schema is present
-        // and the extension list includes it.
         let result = tokio::process::Command::new("gnome-extensions")
             .args(["info", "user-theme@gnome-shell-extensions.gcampax.github.com"])
             .output()
             .await;
         match result {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                stdout.contains("State: ENABLED")
-            }
+            Ok(out) => String::from_utf8_lossy(&out.stdout).contains("State: ENABLED"),
             Err(_) => false,
         }
     }

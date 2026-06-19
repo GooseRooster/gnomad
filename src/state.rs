@@ -7,6 +7,7 @@ pub enum AppMode {
     Normal,
     Processing,
     Searching,
+    EditingDir,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,13 +25,11 @@ pub struct AppState {
     // Scheme browser
     pub all_schemes: Vec<Scheme>,
     pub filtered_schemes: Vec<usize>, // indices into all_schemes
-    pub scheme_list_offset: usize,
     pub selected_scheme_idx: usize,   // index into filtered_schemes
     pub search_query: String,
 
     // Wallpaper picker
     pub wallpapers: Vec<PathBuf>,
-    pub wallpaper_list_offset: usize,
     pub selected_wallpaper_idx: usize,
 
     // GNOME state
@@ -39,6 +38,9 @@ pub struct AppState {
     // Processing animation
     pub animation_status: watch::Receiver<String>,
     pub status_tx: watch::Sender<String>,
+
+    // Dir editing (EditingDir mode)
+    pub dir_input: String,
 
     // Error/warning display
     pub last_error: Option<String>,
@@ -54,15 +56,14 @@ impl AppState {
             active_panel: Panel::Schemes,
             all_schemes: Vec::new(),
             filtered_schemes: Vec::new(),
-            scheme_list_offset: 0,
             selected_scheme_idx: 0,
             search_query: String::new(),
             wallpapers: Vec::new(),
-            wallpaper_list_offset: 0,
             selected_wallpaper_idx: 0,
             gnome_color_scheme,
             animation_status,
             status_tx,
+            dir_input: String::new(),
             last_error: None,
         }
     }

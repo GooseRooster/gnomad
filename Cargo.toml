@@ -7,7 +7,6 @@ edition = "2021"
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
 tokio = { version = "1", features = ["full"] }
-zbus = { version = "4", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
@@ -19,6 +18,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
 tokio-stream = "0.1"
 ratatui-image = "3"
-palette = "0.7"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 which = "6"
 futures = "0.3"

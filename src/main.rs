@@ -102,9 +102,14 @@ async fn main() -> Result<()> {
 
     eprintln!("gnomad: loaded {} schemes", schemes.len());
 
+    // Detect terminal graphics protocol before entering raw mode
+    let picker = ratatui_image::picker::Picker::from_query_stdio()
+        .map_err(|e| eprintln!("gnomad: image preview unavailable ({e})"))
+        .ok();
+
     // Launch TUI
     let mut terminal = ratatui::init();
-    let mut app = App::new(config, gnome_color_scheme);
+    let mut app = App::new(config, gnome_color_scheme, picker);
     app.state.set_schemes(schemes, app.config.follow_user_scheme_type);
 
     let result = app.run(&mut terminal).await;

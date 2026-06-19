@@ -12,33 +12,39 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Paragraph,
 };
-use std::path::PathBuf;
+use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
+use std::path::{Path, PathBuf};
 use tokio::time::{interval, Duration};
 
 pub struct App {
     pub state: AppState,
     pub config: Config,
+    picker: Option<Picker>,
+    image_proto: Option<StatefulProtocol>,
+    preview_path: Option<PathBuf>,
 }
 
 impl App {
-    pub fn new(config: Config, gnome_color_scheme: String) -> Self {
+    pub fn new(config: Config, gnome_color_scheme: String, picker: Option<Picker>) -> Self {
         Self {
             state: AppState::new(gnome_color_scheme),
             config,
+            picker,
+            image_proto: None,
+            preview_path: None,
         }
     }
 
     pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        // Load wallpapers
         self.load_wallpapers();
 
         let mut event_stream = EventStream::new();
-        let mut anim_tick = interval(Duration::from_millis(100)); // 10fps
+        let mut anim_tick = interval(Duration::from_millis(100));
         let mut anim_state = animation::AnimationState::new();
 
         loop {
             let status = self.state.animation_status.borrow().clone();
-
+            self.update_preview();
             terminal.draw(|f| self.render(f, &anim_state, &status))?;
 
             tokio::select! {
@@ -50,7 +56,7 @@ impl App {
                 Some(Ok(event)) = event_stream.next() => {
                     if let Event::Key(key) = event {
                         if self.handle_key(key).await? {
-                            break; // quit
+                            break;
                         }
                     }
                 }
@@ -60,10 +66,9 @@ impl App {
         Ok(())
     }
 
-    fn render(&self, f: &mut Frame, anim: &animation::AnimationState, status: &str) {
+    fn render(&mut self, f: &mut Frame, anim: &animation::AnimationState, status: &str) {
         let area = f.area();
 
-        // Layout: title bar | main | status bar
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -74,7 +79,6 @@ impl App {
             ])
             .split(area);
 
-        // Title
         let panel_name = match self.state.active_panel {
             Panel::Schemes => "Schemes",
             Panel::Wallpapers => "Wallpapers",
@@ -83,19 +87,23 @@ impl App {
             .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
         f.render_widget(title, chunks[0]);
 
-        // Main content
         match self.state.active_panel {
             Panel::Schemes => scheme_browser::render(f, chunks[1], &self.state),
-            Panel::Wallpapers => wallpaper_picker::render(f, chunks[1], &self.state),
+            Panel::Wallpapers => wallpaper_picker::render(
+                f,
+                chunks[1],
+                &self.state,
+                &self.config.wallpaper_dir.clone(),
+                &self.config.wallpaper_cache_dir.clone(),
+                self.image_proto.as_mut(),
+            ),
         }
 
-        // Hints
         match self.state.active_panel {
             Panel::Schemes => scheme_browser::render_hints(f, chunks[2]),
             Panel::Wallpapers => wallpaper_picker::render_hints(f, chunks[2]),
         }
 
-        // Status bar
         let active_name = self
             .state
             .active_scheme
@@ -124,14 +132,51 @@ impl App {
         let status_bar = Paragraph::new(status_bar_text).style(status_style);
         f.render_widget(status_bar, chunks[3]);
 
-        // Animation overlay when processing
         if self.state.mode == AppMode::Processing {
             animation::render(f, anim, status);
         }
     }
 
+    fn update_preview(&mut self) {
+        if self.state.active_panel != Panel::Wallpapers {
+            self.image_proto = None;
+            self.preview_path = None;
+            return;
+        }
+
+        let Some(wallpaper) = self.state.selected_wallpaper().cloned() else {
+            self.image_proto = None;
+            self.preview_path = None;
+            return;
+        };
+
+        let display_path = if let Some(scheme) = &self.state.active_scheme {
+            let cache_dir = self.config.wallpaper_cache_dir.join(&scheme.slug);
+            pipeline::wallpaper_cache::cached_path(&wallpaper, &cache_dir)
+                .unwrap_or_else(|| wallpaper.clone())
+        } else {
+            wallpaper.clone()
+        };
+
+        if Some(&display_path) == self.preview_path.as_ref() {
+            return;
+        }
+
+        self.preview_path = Some(display_path.clone());
+        self.load_image(&display_path);
+    }
+
+    fn load_image(&mut self, path: &Path) {
+        let Some(picker) = self.picker.as_mut() else {
+            self.image_proto = None;
+            return;
+        };
+        self.image_proto = image::open(path)
+            .ok()
+            .map(|img| picker.new_resize_protocol(img));
+    }
+
     async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
-        // Global quit
         if key.code == KeyCode::Char('q') && self.state.mode == AppMode::Normal {
             return Ok(true);
         }
@@ -139,37 +184,58 @@ impl App {
         match self.state.mode.clone() {
             AppMode::Normal => self.handle_normal(key).await,
             AppMode::Searching => self.handle_search(key),
-            AppMode::Processing => Ok(false), // ignore input during processing
+            AppMode::EditingDir => self.handle_dir_input(key).await,
+            AppMode::Processing => Ok(false),
         }
     }
 
     async fn handle_normal(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
-            // Panel switching
             KeyCode::Tab | KeyCode::Char('l') | KeyCode::Char('h') => {
                 self.state.toggle_panel();
+                self.preview_path = None; // force preview reload on panel switch
             }
 
-            // Navigation
-            KeyCode::Down | KeyCode::Char('j') => self.state.move_down(1),
-            KeyCode::Up | KeyCode::Char('k') => self.state.move_up(1),
-            KeyCode::Char('g') => self.state.go_to_top(),
-            KeyCode::Char('G') => self.state.go_to_bottom(),
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.state.move_down(1);
+                self.preview_path = None;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.state.move_up(1);
+                self.preview_path = None;
+            }
+            KeyCode::Char('g') => {
+                self.state.go_to_top();
+                self.preview_path = None;
+            }
+            KeyCode::Char('G') => {
+                self.state.go_to_bottom();
+                self.preview_path = None;
+            }
             KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
                 self.state.move_down(10);
+                self.preview_path = None;
             }
             KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
                 self.state.move_up(10);
+                self.preview_path = None;
             }
 
-            // Actions
             KeyCode::Enter => self.trigger_action().await?,
+
+            KeyCode::Char('d')
+                if key.modifiers == KeyModifiers::NONE
+                    && self.state.active_panel == Panel::Wallpapers =>
+            {
+                self.state.dir_input =
+                    self.config.wallpaper_dir.to_string_lossy().to_string();
+                self.state.mode = AppMode::EditingDir;
+            }
+
             KeyCode::Char('c') if key.modifiers == KeyModifiers::NONE => {
                 self.trigger_batch_convert(false).await?;
             }
-            KeyCode::Char('C') | KeyCode::Char('c')
-                if key.modifiers == KeyModifiers::SHIFT =>
-            {
+            KeyCode::Char('C') => {
                 self.trigger_batch_convert(true).await?;
             }
             KeyCode::Char('u') if key.modifiers == KeyModifiers::NONE => {
@@ -202,6 +268,43 @@ impl App {
         Ok(false)
     }
 
+    async fn handle_dir_input(&mut self, key: KeyEvent) -> Result<bool> {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.mode = AppMode::Normal;
+                self.state.dir_input.clear();
+            }
+            KeyCode::Enter => {
+                let new_dir = PathBuf::from(self.state.dir_input.trim());
+                self.state.dir_input.clear();
+                self.state.mode = AppMode::Normal;
+
+                if new_dir.is_dir() {
+                    self.config.wallpaper_dir = new_dir;
+                    if let Err(e) = self.config.save() {
+                        self.state.last_error = Some(format!("save config: {e:#}"));
+                    } else {
+                        self.state.selected_wallpaper_idx = 0;
+                        self.preview_path = None;
+                        self.load_wallpapers();
+                        self.state.last_error = None;
+                    }
+                } else {
+                    self.state.last_error =
+                        Some(format!("Directory not found: {}", new_dir.display()));
+                }
+            }
+            KeyCode::Backspace => {
+                self.state.dir_input.pop();
+            }
+            KeyCode::Char(c) => {
+                self.state.dir_input.push(c);
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
     async fn trigger_action(&mut self) -> Result<()> {
         match self.state.active_panel {
             Panel::Schemes => self.apply_selected_scheme().await,
@@ -220,16 +323,10 @@ impl App {
         let config = self.config.clone();
         let current_wall = self.state.current_wallpaper.clone();
         let status_tx = self.state.status_tx.clone();
-
         let scheme_clone = scheme.clone();
+
         let result = tokio::task::spawn(async move {
-            pipeline::apply_scheme(
-                &scheme_clone,
-                &config,
-                current_wall.as_deref(),
-                status_tx,
-            )
-            .await
+            pipeline::apply_scheme(&scheme_clone, &config, current_wall.as_deref(), status_tx).await
         })
         .await;
 
@@ -240,13 +337,10 @@ impl App {
                 self.state.active_scheme = Some(scheme);
                 self.state.current_wallpaper = Some(new_wall);
                 self.state.last_error = None;
+                self.preview_path = None; // force reload with converted version
             }
-            Ok(Err(e)) => {
-                self.state.last_error = Some(format!("{e:#}"));
-            }
-            Err(e) => {
-                self.state.last_error = Some(format!("task panicked: {e}"));
-            }
+            Ok(Err(e)) => self.state.last_error = Some(format!("{e:#}")),
+            Err(e) => self.state.last_error = Some(format!("task panicked: {e}")),
         }
         Ok(())
     }
@@ -272,13 +366,10 @@ impl App {
             Ok(Ok(new_wall)) => {
                 self.state.current_wallpaper = Some(new_wall);
                 self.state.last_error = None;
+                self.preview_path = None;
             }
-            Ok(Err(e)) => {
-                self.state.last_error = Some(format!("{e:#}"));
-            }
-            Err(e) => {
-                self.state.last_error = Some(format!("task panicked: {e}"));
-            }
+            Ok(Err(e)) => self.state.last_error = Some(format!("{e:#}")),
+            Err(e) => self.state.last_error = Some(format!("task panicked: {e}")),
         }
         Ok(())
     }
@@ -299,7 +390,6 @@ impl App {
         let status_tx = self.state.status_tx.clone();
 
         let result = tokio::task::spawn(async move {
-            fetch::update_schemes_repo(&config.schemes_repo_dir).await.ok();
             pipeline::wallpaper_cache::batch_convert(
                 &scheme,
                 &config.wallpaper_dir,
@@ -312,6 +402,7 @@ impl App {
         .await;
 
         self.state.mode = AppMode::Normal;
+        self.preview_path = None; // refresh preview — cache state may have changed
 
         if let Ok(Err(e)) = result {
             self.state.last_error = Some(format!("{e:#}"));
@@ -336,24 +427,22 @@ impl App {
 
         match result {
             Ok(Ok(schemes)) => {
-                self.state.set_schemes(schemes, self.config.follow_user_scheme_type);
+                self.state
+                    .set_schemes(schemes, self.config.follow_user_scheme_type);
                 self.state.last_error = None;
             }
-            Ok(Err(e)) => {
-                self.state.last_error = Some(format!("{e:#}"));
-            }
-            Err(e) => {
-                self.state.last_error = Some(format!("task panicked: {e}"));
-            }
+            Ok(Err(e)) => self.state.last_error = Some(format!("{e:#}")),
+            Err(e) => self.state.last_error = Some(format!("task panicked: {e}")),
         }
         Ok(())
     }
 
     fn load_wallpapers(&mut self) {
         if !self.config.wallpaper_dir.exists() {
+            self.state.wallpapers.clear();
             return;
         }
-        let entries: Vec<PathBuf> = std::fs::read_dir(&self.config.wallpaper_dir)
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(&self.config.wallpaper_dir)
             .into_iter()
             .flatten()
             .filter_map(|e| e.ok())
@@ -365,8 +454,7 @@ impl App {
                 )
             })
             .collect();
-
+        entries.sort();
         self.state.wallpapers = entries;
-        self.state.wallpapers.sort();
     }
 }
