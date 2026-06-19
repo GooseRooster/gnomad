@@ -1,3 +1,5 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GooseRooster/gnomad)
+
 # gnomad
 
 Your GNOME theming companion - right in the terminal. Built in Rust with [Ratatui](https://ratatui.rs), leveraging [gowall](https://github.com/Achno/gowall) and [tinty](https://github.com/tinted-theming/tinty).
