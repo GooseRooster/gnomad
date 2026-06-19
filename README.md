@@ -184,6 +184,14 @@ gnomad --apply <slug>     # headless scheme apply and exit (e.g. for scripting)
 
 ---
 
+## AI Disclosure
+The code in this repository was written with assistance from AI.
+All code, whether AI-assisted, hand-written or otherwise, is thoroughly tested and verified and all contributors will take ownership of their code.
+
+
+## Contributing
+As always, feature requests, PRs, issues, and bug reports welcome. If the scope of the feature is on the larger side, open an issue first so we can discuss direction.
+
 ## Roadmap
 
 - Custom scheme editor
