@@ -1,0 +1,24 @@
+[package]
+name = "gnomad"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+tokio = { version = "1", features = ["full"] }
+zbus = { version = "4", features = ["tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5"
+tokio-stream = "0.1"
+ratatui-image = "3"
+palette = "0.7"
+which = "6"
+futures = "0.3"
