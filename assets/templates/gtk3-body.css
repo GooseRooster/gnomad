@@ -1,3 +1,12 @@
+/*
+ * Adapted from Rewaita (https://github.com/SwordPuffin/Rewaita)
+ * Copyright (C) SwordPuffin
+ * Licensed under GPL-3.0-or-later
+ *
+ * Modified by GooseRooster for gnomad — converted to base* slot templating, 2026
+ */
+
+
 /* Rewaita specific patches */
 
 .text-button:not(checkbutton):not(radiobutton) {
