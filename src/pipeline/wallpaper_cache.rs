@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use tokio::task::JoinSet;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -157,6 +158,8 @@ pub async fn batch_convert(
                     "--output",
                     dst.to_str().unwrap(),
                 ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .await
                 .context("spawning gowall")?;

@@ -11,21 +11,28 @@ impl GnomeInterface {
 
     pub async fn set_wallpaper(&self, path: &Path) -> Result<()> {
         let uri = format!("file://{}", path.display());
-        self.gsettings_set("org.gnome.desktop.background", "picture-uri", &format!("'{uri}'"))
-            .await?;
-        self.gsettings_set("org.gnome.desktop.background", "picture-uri-dark", &format!("'{uri}'"))
-            .await?;
+        self.gsettings_set(
+            "org.gnome.desktop.background",
+            "picture-uri",
+            &format!("'{uri}'"),
+        )
+        .await?;
+        self.gsettings_set(
+            "org.gnome.desktop.background",
+            "picture-uri-dark",
+            &format!("'{uri}'"),
+        )
+        .await?;
         Ok(())
     }
 
-    /// Toggle color-scheme to force GNOME Shell to reload CSS, then restore.
-    pub async fn reload_shell_css(&self) -> Result<()> {
-        let current = self
-            .gsettings_get("org.gnome.desktop.interface", "color-scheme")
-            .await?;
-        let current = current.trim().trim_matches('\'');
-
-        let opposite = if current == "prefer-dark" {
+    /// Set the color-scheme permanently and briefly toggle to signal GTK4/LibAdwaita apps.
+    ///
+    /// The toggle (opposite → target) creates a net change even if color-scheme was already
+    /// at `target`, waking up apps that watch the setting. Ending at `target` also propagates
+    /// dark/light mode to QT apps via xdg-desktop-portal.
+    pub async fn set_color_scheme(&self, target: &str) -> Result<()> {
+        let opposite = if target == "prefer-dark" {
             "prefer-light"
         } else {
             "prefer-dark"
@@ -38,16 +45,39 @@ impl GnomeInterface {
         )
         .await?;
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        //tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         self.gsettings_set(
             "org.gnome.desktop.interface",
             "color-scheme",
-            &format!("'{current}'"),
+            &format!("'{target}'"),
         )
         .await?;
 
         Ok(())
+    }
+
+    /// Reload the GNOME Shell user-theme CSS by disabling then re-enabling the extension.
+    /// This is the same mechanism Rewaita uses to force the shell to pick up new CSS.
+    /// Silently does nothing if the extension is not enabled.
+    pub async fn reload_shell_theme(&self) {
+        if !self.is_user_themes_enabled().await {
+            return;
+        }
+        let ext = "user-theme@gnome-shell-extensions.gcampax.github.com";
+        let _ = tokio::process::Command::new("gnome-extensions")
+            .args(["disable", ext])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let _ = tokio::process::Command::new("gnome-extensions")
+            .args(["enable", ext])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
     }
 
     pub async fn get_color_scheme(&self) -> Result<String> {

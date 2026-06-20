@@ -151,6 +151,13 @@ async fn main() -> Result<()> {
     let mut app = App::new(config, gnome_color_scheme, picker);
     app.state.set_schemes(schemes, app.config.follow_user_scheme_type);
 
+    // Restore last active scheme so wallpaper picker knows which scheme to convert for
+    if let Some(ref slug) = app.config.default_scheme.clone() {
+        app.state.active_scheme = app.state.all_schemes.iter()
+            .find(|s| &s.slug == slug)
+            .cloned();
+    }
+
     let result = app.run(&mut terminal).await;
     ratatui::restore();
     result

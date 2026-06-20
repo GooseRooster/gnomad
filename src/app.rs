@@ -389,6 +389,11 @@ impl App {
 
         match result {
             Ok(Ok(output_path)) => {
+                // Persist active scheme so wallpaper picker works correctly on next launch
+                self.config.default_scheme = Some(scheme.slug.clone());
+                if let Err(e) = self.config.save() {
+                    tracing::warn!("failed to save config: {e:#}");
+                }
                 self.state.active_scheme = Some(scheme);
                 // current_wallpaper tracks the output path for GNOME; source_wallpaper stays as-is
                 self.state.current_wallpaper = Some(output_path);
