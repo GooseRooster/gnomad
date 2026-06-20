@@ -42,12 +42,14 @@ Browse and apply base16/base24 colour schemes across your entire GNOME desktop i
 ---
 
 ## Installation
-
+Manual installation
 ```bash
 git clone https://github.com/GooseRooser/gnomad
 cd gnomad
 cargo install --path .
 ```
+
+Cargo package will be published later.
 
 On first launch gnomad will clone the tinted-theming schemes repository into `~/.local/share/gnomad/schemes-repo` automatically.
 
