@@ -23,6 +23,13 @@ struct Cli {
     #[arg(long, value_name = "SLUG", help = "Apply a scheme headlessly and exit")]
     apply: Option<String>,
 
+    #[arg(
+        long,
+        help = "Ensure /tmp/gnomad-current-scheme.json is present and matches the \
+                current scheme; regenerates it if missing or stale, then exits"
+    )]
+    populate_json_scheme: bool,
+
     #[arg(short, long, help = "Enable debug logging (pipeline steps, paths, errors)")]
     verbose: bool,
 }
@@ -70,6 +77,11 @@ async fn main() -> Result<()> {
         } else {
             eprintln!("gnomad: created default config at {}", config::config_path().display());
         }
+    }
+
+    // Headless: ensure palette JSON is present and current (no binary deps needed)
+    if cli.populate_json_scheme {
+        return headless_populate_json_scheme(&config).await;
     }
 
     // Startup checks
@@ -170,6 +182,50 @@ fn check_binary(name: &str) -> Result<()> {
     which::which(name)
         .map(|_| ())
         .with_context(|| format!("'{name}' not found in PATH — please install it"))
+}
+
+async fn headless_populate_json_scheme(config: &Config) -> Result<()> {
+    let slug = config
+        .default_scheme
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("no scheme configured — apply a scheme in gnomad first"))?;
+
+    let scheme = load_scheme_by_slug(slug, config)
+        .with_context(|| format!("finding scheme '{slug}'"))?;
+
+    // Fast path: JSON already exists and matches the current scheme name
+    if let Ok(json) = std::fs::read_to_string(pipeline::gowall::PALETTE_JSON_PATH) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&json) {
+            if value.get("name").and_then(|n| n.as_str()) == Some(scheme.name.as_str()) {
+                println!("ok");
+                return Ok(());
+            }
+        }
+    }
+
+    // File missing, unparseable, or stale: regenerate
+    pipeline::gowall::write_palette_json(&scheme)?;
+    println!("ok");
+    Ok(())
+}
+
+fn load_scheme_by_slug(slug: &str, config: &Config) -> Result<schemes::types::Scheme> {
+    let mut candidates = vec![
+        (config.schemes_repo_dir.join("base16").join(format!("{slug}.yaml")), false),
+        (config.schemes_repo_dir.join("base24").join(format!("{slug}.yaml")), false),
+    ];
+    if let Some(ref custom) = config.custom_schemes_dir {
+        candidates.push((custom.join(format!("{slug}.yaml")), true));
+    }
+
+    for (path, is_custom) in &candidates {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return schemes::types::parse_scheme_yaml(&content, path, *is_custom)
+                .with_context(|| format!("parsing {}", path.display()));
+        }
+    }
+
+    anyhow::bail!("scheme '{slug}' not found in schemes repo or custom dir")
 }
 
 async fn headless_apply(slug: &str, config: &Config) -> Result<()> {
