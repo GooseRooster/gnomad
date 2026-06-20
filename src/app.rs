@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::pipeline;
 use crate::schemes::fetch;
+use crate::schemes::types::Scheme;
 use crate::state::{AppMode, AppState, Panel};
 use crate::ui::{animation, scheme_browser, wallpaper_picker};
 use anyhow::Result;
@@ -16,8 +17,17 @@ use ratatui::{
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 use std::path::PathBuf;
 use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 use tracing::debug;
+
+// Result type carried back to the event loop from each spawned pipeline task.
+enum TaskResult {
+    ApplyScheme { scheme: Scheme, result: anyhow::Result<PathBuf> },
+    ApplyWallpaper { wallpaper: PathBuf, result: anyhow::Result<PathBuf> },
+    BatchConvert { result: anyhow::Result<()> },
+    UpdateSchemes { result: anyhow::Result<Vec<Scheme>> },
+}
 
 pub struct App {
     pub state: AppState,
@@ -31,6 +41,10 @@ pub struct App {
     preview_path: Option<PathBuf>,
     // Async image loading: spawn_blocking + oneshot so navigation stays responsive
     image_rx: Option<oneshot::Receiver<DynamicImage>>,
+    // Animation state (owned here so start_animation() can be called inline)
+    anim_state: animation::AnimationState,
+    // In-flight pipeline task — non-None while Processing
+    processing_task: Option<JoinHandle<TaskResult>>,
 }
 
 impl App {
@@ -43,6 +57,8 @@ impl App {
             image_proto: None,
             preview_path: None,
             image_rx: None,
+            anim_state: animation::AnimationState::new(),
+            processing_task: None,
         }
     }
 
@@ -51,20 +67,19 @@ impl App {
         self.restore_wallpaper_state();
 
         let mut event_stream = EventStream::new();
-        let mut anim_tick = interval(Duration::from_millis(100));
-        let mut anim_state = animation::AnimationState::new();
+        // 120 ms tick — intentionally low FPS to be compositor-friendly during shell reload
+        let mut anim_tick = interval(Duration::from_millis(120));
 
         loop {
-            // Poll for completed image load (non-blocking)
             self.poll_image_load();
 
             let status = self.state.animation_status.borrow().clone();
-            terminal.draw(|f| self.render(f, &anim_state, &status))?;
+            terminal.draw(|f| self.render(f, &status))?;
 
             tokio::select! {
                 _ = anim_tick.tick() => {
                     if self.state.mode == AppMode::Processing {
-                        anim_state.tick();
+                        self.anim_state.tick();
                     }
                 }
                 Some(Ok(event)) = event_stream.next() => {
@@ -74,10 +89,80 @@ impl App {
                         }
                     }
                 }
+                // Task completion branch — fires as soon as the pipeline finishes,
+                // without ever blocking the render loop above.
+                result = Self::await_task(&mut self.processing_task),
+                    if self.processing_task.is_some() =>
+                {
+                    self.processing_task = None;
+                    self.state.mode = AppMode::Normal;
+                    self.handle_task_result(result);
+                }
             }
         }
 
         Ok(())
+    }
+
+    // Helper future: resolves when the JoinHandle completes.
+    // Uses std::future::pending() when there is no task so the branch is never
+    // selected while idle (the `if self.processing_task.is_some()` guard also
+    // ensures this, but pending() makes the branch a proper no-op future).
+    async fn await_task(task: &mut Option<JoinHandle<TaskResult>>) -> TaskResult {
+        match task {
+            Some(h) => h.await.expect("pipeline task panicked"),
+            None => std::future::pending().await,
+        }
+    }
+
+    fn handle_task_result(&mut self, result: TaskResult) {
+        match result {
+            TaskResult::ApplyScheme { scheme, result } => {
+                match result {
+                    Ok(output_path) => {
+                        self.config.default_scheme = Some(scheme.slug.clone());
+                        if let Err(e) = self.config.save() {
+                            tracing::warn!("failed to save config: {e:#}");
+                        }
+                        self.state.active_scheme = Some(scheme);
+                        self.state.current_wallpaper = Some(output_path);
+                        self.state.last_error = None;
+                        self.invalidate_preview();
+                    }
+                    Err(e) => self.state.last_error = Some(format!("{e:#}")),
+                }
+            }
+            TaskResult::ApplyWallpaper { wallpaper, result } => {
+                match result {
+                    Ok(output_path) => {
+                        self.source_wallpaper = Some(wallpaper.clone());
+                        self.config.last_wallpaper = Some(wallpaper);
+                        if let Err(e) = self.config.save() {
+                            tracing::warn!("failed to save config after wallpaper change: {e:#}");
+                        }
+                        self.state.current_wallpaper = Some(output_path);
+                        self.state.last_error = None;
+                        self.invalidate_preview();
+                    }
+                    Err(e) => self.state.last_error = Some(format!("{e:#}")),
+                }
+            }
+            TaskResult::BatchConvert { result } => {
+                self.invalidate_preview();
+                if let Err(e) = result {
+                    self.state.last_error = Some(format!("{e:#}"));
+                }
+            }
+            TaskResult::UpdateSchemes { result } => {
+                match result {
+                    Ok(schemes) => {
+                        self.state.set_schemes(schemes, self.config.follow_user_scheme_type);
+                        self.state.last_error = None;
+                    }
+                    Err(e) => self.state.last_error = Some(format!("{e:#}")),
+                }
+            }
+        }
     }
 
     /// Check if a background image load finished; create the protocol if so.
@@ -90,9 +175,8 @@ impl App {
                 }
                 self.image_rx = None;
             }
-            Err(oneshot::error::TryRecvError::Empty) => {} // still loading
+            Err(oneshot::error::TryRecvError::Empty) => {}
             Err(oneshot::error::TryRecvError::Closed) => {
-                // Load failed or was cancelled
                 self.image_rx = None;
             }
         }
@@ -113,7 +197,6 @@ impl App {
             return;
         };
 
-        // Show the converted version if cached for the active scheme
         let display_path = if let Some(scheme) = &self.state.active_scheme {
             let cache_dir = self.config.wallpaper_cache_dir.join(&scheme.slug);
             pipeline::wallpaper_cache::cached_path(&wallpaper, &cache_dir)
@@ -123,15 +206,15 @@ impl App {
         };
 
         if Some(&display_path) == self.preview_path.as_ref() {
-            return; // already loaded or loading
+            return;
         }
 
         self.preview_path = Some(display_path.clone());
-        self.image_proto = None; // clear stale preview immediately
-        self.image_rx = None;    // cancel any in-flight load
+        self.image_proto = None;
+        self.image_rx = None;
 
         if self.picker.is_none() {
-            return; // no graphics support — text fallback only
+            return;
         }
 
         let (tx, rx) = oneshot::channel();
@@ -143,7 +226,7 @@ impl App {
         });
     }
 
-    fn render(&mut self, f: &mut Frame, anim: &animation::AnimationState, status: &str) {
+    fn render(&mut self, f: &mut Frame, status: &str) {
         let area = f.area();
 
         let chunks = Layout::default()
@@ -185,7 +268,6 @@ impl App {
             Panel::Wallpapers => wallpaper_picker::render_hints(f, chunks[2]),
         }
 
-        // Status bar: show source wallpaper name (not the output path)
         let active_name = self
             .state
             .active_scheme
@@ -214,7 +296,7 @@ impl App {
         f.render_widget(Paragraph::new(status_bar_text).style(status_style), chunks[3]);
 
         if self.state.mode == AppMode::Processing {
-            animation::render(f, anim, status, self.state.active_scheme.as_ref());
+            animation::render(f, &mut self.anim_state, status, self.state.active_scheme.as_ref());
         }
     }
 
@@ -263,7 +345,7 @@ impl App {
                 self.invalidate_preview();
             }
 
-            KeyCode::Enter => self.trigger_action().await?,
+            KeyCode::Enter => self.trigger_action()?,
 
             KeyCode::Char('d')
                 if key.modifiers == KeyModifiers::NONE
@@ -274,13 +356,13 @@ impl App {
             }
 
             KeyCode::Char('c') if key.modifiers == KeyModifiers::NONE => {
-                self.trigger_batch_convert(false).await?;
+                self.trigger_batch_convert(false)?;
             }
             KeyCode::Char('C') => {
-                self.trigger_batch_convert(true).await?;
+                self.trigger_batch_convert(true)?;
             }
             KeyCode::Char('u') if key.modifiers == KeyModifiers::NONE => {
-                self.trigger_update_schemes().await?;
+                self.trigger_update_schemes()?;
             }
             KeyCode::Char('/') if self.state.active_panel == Panel::Schemes => {
                 self.state.mode = AppMode::Searching;
@@ -300,7 +382,6 @@ impl App {
             }
             KeyCode::Enter => {
                 self.state.mode = AppMode::Normal;
-                // keep the active filter on Enter — user pressed Enter to confirm
             }
             KeyCode::Char(c) => {
                 self.state.search_query.push(c);
@@ -352,67 +433,51 @@ impl App {
         Ok(false)
     }
 
-    async fn trigger_action(&mut self) -> Result<()> {
+    fn trigger_action(&mut self) -> Result<()> {
         match self.state.active_panel {
-            Panel::Schemes => self.apply_selected_scheme().await,
-            Panel::Wallpapers => self.apply_selected_wallpaper().await,
+            Panel::Schemes => self.apply_selected_scheme(),
+            Panel::Wallpapers => self.apply_selected_wallpaper(),
         }
     }
 
-    async fn apply_selected_scheme(&mut self) -> Result<()> {
+    fn apply_selected_scheme(&mut self) -> Result<()> {
         let Some(scheme) = self.state.selected_scheme().cloned() else {
             return Ok(());
         };
 
         self.state.mode = AppMode::Processing;
+        self.anim_state.start_animation();
         let _ = self.state.status_tx.send("[ starting... ]".to_string());
 
         let config = self.config.clone();
-        // Always convert from the ORIGINAL source, not the previously-converted output
         let source_wall = self.source_wallpaper.clone();
         let status_tx = self.state.status_tx.clone();
         let scheme_clone = scheme.clone();
 
         debug!("apply_scheme: source_wall = {:?}", source_wall);
 
-        let result = tokio::task::spawn(async move {
-            pipeline::apply_scheme(
+        self.processing_task = Some(tokio::task::spawn(async move {
+            let result = pipeline::apply_scheme(
                 &scheme_clone,
                 &config,
                 source_wall.as_deref(),
                 status_tx,
             )
-            .await
-        })
-        .await;
+            .await;
+            TaskResult::ApplyScheme { scheme, result }
+        }));
 
-        self.state.mode = AppMode::Normal;
-
-        match result {
-            Ok(Ok(output_path)) => {
-                // Persist active scheme so wallpaper picker works correctly on next launch
-                self.config.default_scheme = Some(scheme.slug.clone());
-                if let Err(e) = self.config.save() {
-                    tracing::warn!("failed to save config: {e:#}");
-                }
-                self.state.active_scheme = Some(scheme);
-                // current_wallpaper tracks the output path for GNOME; source_wallpaper stays as-is
-                self.state.current_wallpaper = Some(output_path);
-                self.state.last_error = None;
-                self.invalidate_preview();
-            }
-            Ok(Err(e)) => self.state.last_error = Some(format!("{e:#}")),
-            Err(e) => self.state.last_error = Some(format!("task panicked: {e}")),
-        }
         Ok(())
     }
 
-    async fn apply_selected_wallpaper(&mut self) -> Result<()> {
+    fn apply_selected_wallpaper(&mut self) -> Result<()> {
         let Some(wallpaper) = self.state.selected_wallpaper().cloned() else {
             return Ok(());
         };
 
         self.state.mode = AppMode::Processing;
+        self.anim_state.start_animation();
+
         let config = self.config.clone();
         let active_scheme = self.state.active_scheme.clone();
         let status_tx = self.state.status_tx.clone();
@@ -420,33 +485,17 @@ impl App {
 
         debug!("apply_wallpaper: {}", wallpaper.display());
 
-        let result = tokio::task::spawn(async move {
-            pipeline::apply_wallpaper(&wall_clone, active_scheme.as_ref(), &config, status_tx)
-                .await
-        })
-        .await;
+        self.processing_task = Some(tokio::task::spawn(async move {
+            let result =
+                pipeline::apply_wallpaper(&wall_clone, active_scheme.as_ref(), &config, status_tx)
+                    .await;
+            TaskResult::ApplyWallpaper { wallpaper, result }
+        }));
 
-        self.state.mode = AppMode::Normal;
-
-        match result {
-            Ok(Ok(output_path)) => {
-                // Record original source so scheme switches always convert from the original
-                self.source_wallpaper = Some(wallpaper.clone());
-                self.config.last_wallpaper = Some(wallpaper);
-                if let Err(e) = self.config.save() {
-                    tracing::warn!("failed to save config after wallpaper change: {e:#}");
-                }
-                self.state.current_wallpaper = Some(output_path);
-                self.state.last_error = None;
-                self.invalidate_preview();
-            }
-            Ok(Err(e)) => self.state.last_error = Some(format!("{e:#}")),
-            Err(e) => self.state.last_error = Some(format!("task panicked: {e}")),
-        }
         Ok(())
     }
 
-    async fn trigger_batch_convert(&mut self, force: bool) -> Result<()> {
+    fn trigger_batch_convert(&mut self, force: bool) -> Result<()> {
         let scheme = match self.state.active_panel {
             Panel::Schemes => self.state.selected_scheme().cloned(),
             Panel::Wallpapers => self.state.active_scheme.clone(),
@@ -458,64 +507,51 @@ impl App {
         };
 
         self.state.mode = AppMode::Processing;
+        self.anim_state.start_animation();
+
         let config = self.config.clone();
         let status_tx = self.state.status_tx.clone();
 
-        let result = tokio::task::spawn(async move {
-            pipeline::wallpaper_cache::batch_convert(
+        self.processing_task = Some(tokio::task::spawn(async move {
+            let result = pipeline::wallpaper_cache::batch_convert(
                 &scheme,
                 &config.wallpaper_dir,
                 &config.wallpaper_cache_dir,
                 force,
                 status_tx,
             )
-            .await
-        })
-        .await;
+            .await;
+            TaskResult::BatchConvert { result }
+        }));
 
-        self.state.mode = AppMode::Normal;
-        self.invalidate_preview(); // cache state changed — reload preview
-
-        if let Ok(Err(e)) = result {
-            self.state.last_error = Some(format!("{e:#}"));
-        }
         Ok(())
     }
 
-    async fn trigger_update_schemes(&mut self) -> Result<()> {
+    fn trigger_update_schemes(&mut self) -> Result<()> {
         self.state.mode = AppMode::Processing;
+        self.anim_state.start_animation();
         let _ = self.state.status_tx.send("[ updating schemes... ]".to_string());
 
         let repo_dir = self.config.schemes_repo_dir.clone();
         let custom_dir = self.config.custom_schemes_dir.clone();
 
-        let result = tokio::task::spawn(async move {
-            fetch::update_schemes_repo(&repo_dir).await?;
-            fetch::load_schemes(&repo_dir, custom_dir.as_deref())
-        })
-        .await;
-
-        self.state.mode = AppMode::Normal;
-
-        match result {
-            Ok(Ok(schemes)) => {
-                self.state.set_schemes(schemes, self.config.follow_user_scheme_type);
-                self.state.last_error = None;
+        self.processing_task = Some(tokio::task::spawn(async move {
+            let result = async {
+                fetch::update_schemes_repo(&repo_dir).await?;
+                fetch::load_schemes(&repo_dir, custom_dir.as_deref())
             }
-            Ok(Err(e)) => self.state.last_error = Some(format!("{e:#}")),
-            Err(e) => self.state.last_error = Some(format!("task panicked: {e}")),
-        }
+            .await;
+            TaskResult::UpdateSchemes { result }
+        }));
+
         Ok(())
     }
 
-    /// Restore `source_wallpaper` and the wallpaper picker scroll position from the
-    /// persisted `last_wallpaper` config key. Must be called after `load_wallpapers`.
     fn restore_wallpaper_state(&mut self) {
         let Some(ref last) = self.config.last_wallpaper.clone() else {
             return;
         };
         if !last.exists() {
-            // File was deleted or moved — drop the stale reference
             self.config.last_wallpaper = None;
             return;
         }
@@ -544,11 +580,9 @@ impl App {
             .collect();
         entries.sort();
         self.state.wallpapers = entries;
-        // Kick off preview for whatever is selected after reload
         self.invalidate_preview();
     }
 
-    /// Signal that the preview path is stale — next poll_image_load call will start a fresh load.
     fn invalidate_preview(&mut self) {
         self.preview_path = None;
         self.maybe_start_image_load();
