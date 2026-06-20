@@ -48,6 +48,7 @@ impl App {
 
     pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         self.load_wallpapers();
+        self.restore_wallpaper_state();
 
         let mut event_stream = EventStream::new();
         let mut anim_tick = interval(Duration::from_millis(100));
@@ -430,7 +431,11 @@ impl App {
         match result {
             Ok(Ok(output_path)) => {
                 // Record original source so scheme switches always convert from the original
-                self.source_wallpaper = Some(wallpaper);
+                self.source_wallpaper = Some(wallpaper.clone());
+                self.config.last_wallpaper = Some(wallpaper);
+                if let Err(e) = self.config.save() {
+                    tracing::warn!("failed to save config after wallpaper change: {e:#}");
+                }
                 self.state.current_wallpaper = Some(output_path);
                 self.state.last_error = None;
                 self.invalidate_preview();
@@ -501,6 +506,23 @@ impl App {
             Err(e) => self.state.last_error = Some(format!("task panicked: {e}")),
         }
         Ok(())
+    }
+
+    /// Restore `source_wallpaper` and the wallpaper picker scroll position from the
+    /// persisted `last_wallpaper` config key. Must be called after `load_wallpapers`.
+    fn restore_wallpaper_state(&mut self) {
+        let Some(ref last) = self.config.last_wallpaper.clone() else {
+            return;
+        };
+        if !last.exists() {
+            // File was deleted or moved — drop the stale reference
+            self.config.last_wallpaper = None;
+            return;
+        }
+        self.source_wallpaper = Some(last.clone());
+        if let Some(idx) = self.state.wallpapers.iter().position(|w| w == last) {
+            self.state.selected_wallpaper_idx = idx;
+        }
     }
 
     fn load_wallpapers(&mut self) {

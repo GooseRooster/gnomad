@@ -9,6 +9,8 @@ pub struct Config {
     #[serde(default = "default_theme_name")]
     pub theme_name: String,
     pub default_scheme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_wallpaper: Option<PathBuf>,
     #[serde(default = "default_schemes_repo_dir")]
     pub schemes_repo_dir: PathBuf,
     #[serde(default = "default_output_wallpaper_path")]
@@ -80,6 +82,7 @@ impl Config {
             custom_schemes_dir: None,
             theme_name: default_theme_name(),
             default_scheme: None,
+            last_wallpaper: None,
             schemes_repo_dir: default_schemes_repo_dir(),
             output_wallpaper_path: default_output_wallpaper_path(),
             wallpaper_cache_dir: default_wallpaper_cache_dir(),

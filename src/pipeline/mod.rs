@@ -87,7 +87,7 @@ pub async fn apply_scheme(
     // Step 5: GNOME integration
     let _ = status_tx.send("[ reloading shell... ]".to_string());
     debug!("setting wallpaper: {}", output_wall.display());
-    if source_wallpaper.is_some() || output_wall.exists() {
+    if source_wallpaper.is_some() {
         gnome.set_wallpaper(&output_wall).await?;
     }
 
