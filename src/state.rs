@@ -108,6 +108,30 @@ impl AppState {
             .map(|(i, _)| i)
             .collect();
 
+        // Float the active scheme to the top so it's always reachable with `gg`.
+        // Clone the slug to avoid a simultaneous borrow of self.
+        let active_slug = self.active_scheme.as_ref().map(|s| s.slug.clone());
+        if let Some(slug) = active_slug {
+            if let Some(pos) = self
+                .filtered_schemes
+                .iter()
+                .position(|&i| self.all_schemes[i].slug == slug)
+            {
+                if pos > 0 {
+                    let entry = self.filtered_schemes.remove(pos);
+                    self.filtered_schemes.insert(0, entry);
+                    // Adjust the cursor so it keeps pointing at the same scheme.
+                    // Elements before `pos` shift right by 1; elements after are
+                    // unaffected (remove then re-insert at 0 cancel each other out).
+                    if self.selected_scheme_idx < pos {
+                        self.selected_scheme_idx += 1;
+                    } else if self.selected_scheme_idx == pos {
+                        self.selected_scheme_idx = 0;
+                    }
+                }
+            }
+        }
+
         self.selected_scheme_idx = self.selected_scheme_idx.min(
             self.filtered_schemes.len().saturating_sub(1)
         );

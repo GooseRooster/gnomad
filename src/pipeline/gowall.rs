@@ -31,7 +31,7 @@ pub fn write_palette_json(scheme: &Scheme) -> Result<()> {
 }
 
 async fn run_gowall(input: &Path, output: &Path) -> Result<()> {
-    let status = Command::new("gowall")
+    let mut child = Command::new("gowall")
         .args([
             "convert",
             input.to_str().unwrap(),
@@ -42,14 +42,26 @@ async fn run_gowall(input: &Path, output: &Path) -> Result<()> {
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .await
+        .kill_on_drop(true)
+        .spawn()
         .context("spawning gowall")?;
 
-    if !status.success() {
-        anyhow::bail!("gowall exited with status {status}");
+    // 90-second timeout per image — gowall can stall at 0% CPU on some large
+    // files; kill_on_drop ensures the process is reaped when we drop the handle.
+    match tokio::time::timeout(
+        tokio::time::Duration::from_secs(90),
+        child.wait(),
+    )
+    .await
+    {
+        Ok(Ok(status)) if status.success() => Ok(()),
+        Ok(Ok(status)) => anyhow::bail!("gowall exited with {status}"),
+        Ok(Err(e)) => anyhow::bail!("gowall wait failed: {e}"),
+        Err(_elapsed) => {
+            let _ = child.kill().await;
+            anyhow::bail!("gowall timed out after 90 s for {}", input.display())
+        }
     }
-    Ok(())
 }
 
 fn build_colors(scheme: &Scheme) -> Vec<String> {

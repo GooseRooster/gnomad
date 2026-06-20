@@ -45,7 +45,7 @@ fn render_list(f: &mut Frame, area: Rect, state: &AppState) {
             };
 
             let line = Line::from(vec![
-                Span::styled(format!("[{tag}] "), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("[{tag}] "), Style::default().fg(Color::Gray)),
                 Span::styled(scheme.name.clone(), name_style),
             ]);
             ListItem::new(line)

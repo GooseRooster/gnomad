@@ -45,6 +45,9 @@ pub struct App {
     anim_state: animation::AnimationState,
     // In-flight pipeline task — non-None while Processing
     processing_task: Option<JoinHandle<TaskResult>>,
+    // Set to true when we need to flush kitty protocol artifacts after an
+    // animation overlay ends (either by task completion or user cancellation).
+    need_terminal_clear: bool,
 }
 
 impl App {
@@ -59,6 +62,7 @@ impl App {
             image_rx: None,
             anim_state: animation::AnimationState::new(),
             processing_task: None,
+            need_terminal_clear: false,
         }
     }
 
@@ -71,6 +75,13 @@ impl App {
         let mut anim_tick = interval(Duration::from_millis(120));
 
         loop {
+            // Flush kitty protocol images left behind by the animation overlay.
+            // Must happen before the next draw, not inside it.
+            if self.need_terminal_clear {
+                self.need_terminal_clear = false;
+                terminal.clear()?;
+            }
+
             self.poll_image_load();
 
             let status = self.state.animation_status.borrow().clone();
@@ -91,12 +102,15 @@ impl App {
                 }
                 // Task completion branch — fires as soon as the pipeline finishes,
                 // without ever blocking the render loop above.
-                result = Self::await_task(&mut self.processing_task),
+                maybe_result = Self::await_task(&mut self.processing_task),
                     if self.processing_task.is_some() =>
                 {
                     self.processing_task = None;
                     self.state.mode = AppMode::Normal;
-                    self.handle_task_result(result);
+                    if let Some(result) = maybe_result {
+                        self.handle_task_result(result);
+                    }
+                    self.need_terminal_clear = true;
                 }
             }
         }
@@ -105,12 +119,14 @@ impl App {
     }
 
     // Helper future: resolves when the JoinHandle completes.
-    // Uses std::future::pending() when there is no task so the branch is never
-    // selected while idle (the `if self.processing_task.is_some()` guard also
-    // ensures this, but pending() makes the branch a proper no-op future).
-    async fn await_task(task: &mut Option<JoinHandle<TaskResult>>) -> TaskResult {
+    // Returns None when the task was cancelled (user pressed Esc).
+    async fn await_task(task: &mut Option<JoinHandle<TaskResult>>) -> Option<TaskResult> {
         match task {
-            Some(h) => h.await.expect("pipeline task panicked"),
+            Some(h) => match h.await {
+                Ok(result) => Some(result),
+                Err(e) if e.is_cancelled() => None,
+                Err(e) => panic!("pipeline task panicked: {e}"),
+            },
             None => std::future::pending().await,
         }
     }
@@ -127,6 +143,8 @@ impl App {
                         self.state.active_scheme = Some(scheme);
                         self.state.current_wallpaper = Some(output_path);
                         self.state.last_error = None;
+                        // Re-pin the newly active scheme at the top of the list.
+                        self.state.rebuild_filter(self.config.follow_user_scheme_type);
                         self.invalidate_preview();
                     }
                     Err(e) => self.state.last_error = Some(format!("{e:#}")),
@@ -227,6 +245,15 @@ impl App {
     }
 
     fn render(&mut self, f: &mut Frame, status: &str) {
+        // Render the animation full-screen and bail out early — the kitty
+        // graphics protocol used by the image preview operates at the pixel
+        // level and is not cleared by ratatui's cell buffer, so we must not
+        // render the wallpaper picker at all while Processing.
+        if self.state.mode == AppMode::Processing {
+            animation::render(f, &mut self.anim_state, status);
+            return;
+        }
+
         let area = f.area();
 
         let chunks = Layout::default()
@@ -295,9 +322,6 @@ impl App {
         };
         f.render_widget(Paragraph::new(status_bar_text).style(status_style), chunks[3]);
 
-        if self.state.mode == AppMode::Processing {
-            animation::render(f, &mut self.anim_state, status, self.state.active_scheme.as_ref());
-        }
     }
 
     async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
@@ -309,7 +333,19 @@ impl App {
             AppMode::Normal => self.handle_normal(key).await,
             AppMode::Searching => self.handle_search(key),
             AppMode::EditingDir => self.handle_dir_input(key).await,
-            AppMode::Processing => Ok(false),
+            AppMode::Processing => {
+                if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+                    if let Some(task) = self.processing_task.take() {
+                        task.abort();
+                        // processing_task is now None so the select! task-completion
+                        // branch (guarded by is_some()) will never fire — we must
+                        // restore Normal mode and schedule the terminal clear here.
+                    }
+                    self.state.mode = AppMode::Normal;
+                    self.need_terminal_clear = true;
+                }
+                Ok(false)
+            }
         }
     }
 
@@ -446,7 +482,15 @@ impl App {
         };
 
         self.state.mode = AppMode::Processing;
-        self.anim_state.start_animation();
+        self.image_proto = None;
+        self.image_rx = None;
+        self.need_terminal_clear = true;
+        let old_scheme = self.state.active_scheme.clone();
+        self.anim_state.start_animation(
+            animation::TaskKind::ApplyScheme,
+            old_scheme.as_ref(),
+            Some(&scheme),
+        );
         let _ = self.state.status_tx.send("[ starting... ]".to_string());
 
         let config = self.config.clone();
@@ -476,10 +520,18 @@ impl App {
         };
 
         self.state.mode = AppMode::Processing;
-        self.anim_state.start_animation();
+        self.image_proto = None;
+        self.image_rx = None;
+        self.need_terminal_clear = true;
+        let current_scheme = self.state.active_scheme.clone();
+        self.anim_state.start_animation(
+            animation::TaskKind::ApplyWallpaper,
+            current_scheme.as_ref(),
+            current_scheme.as_ref(),
+        );
 
         let config = self.config.clone();
-        let active_scheme = self.state.active_scheme.clone();
+        let active_scheme = current_scheme;
         let status_tx = self.state.status_tx.clone();
         let wall_clone = wallpaper.clone();
 
@@ -507,7 +559,15 @@ impl App {
         };
 
         self.state.mode = AppMode::Processing;
-        self.anim_state.start_animation();
+        self.image_proto = None;
+        self.image_rx = None;
+        self.need_terminal_clear = true;
+        let batch_scheme = self.state.active_scheme.clone();
+        self.anim_state.start_animation(
+            animation::TaskKind::BatchConvert,
+            batch_scheme.as_ref(),
+            batch_scheme.as_ref(),
+        );
 
         let config = self.config.clone();
         let status_tx = self.state.status_tx.clone();
@@ -529,7 +589,10 @@ impl App {
 
     fn trigger_update_schemes(&mut self) -> Result<()> {
         self.state.mode = AppMode::Processing;
-        self.anim_state.start_animation();
+        self.image_proto = None;
+        self.image_rx = None;
+        self.need_terminal_clear = true;
+        self.anim_state.start_animation(animation::TaskKind::UpdateSchemes, None, None);
         let _ = self.state.status_tx.send("[ updating schemes... ]".to_string());
 
         let repo_dir = self.config.schemes_repo_dir.clone();

@@ -139,49 +139,93 @@ pub async fn batch_convert(
         return Ok(());
     }
 
-    let mut set: JoinSet<Result<()>> = JoinSet::new();
+    // Each task returns Ok(()) on success or Err(filename) on failure so that
+    // individual errors are collected without cancelling the rest of the set.
+    let mut set: JoinSet<std::result::Result<(), String>> = JoinSet::new();
     let slug_cache_dir_arc = std::sync::Arc::new(slug_cache_dir.clone());
 
-    for (i, src) in to_convert.iter().enumerate() {
-        let _ = status_tx.send(format!("[ converting {} of {} wallpapers... ]", i + 1, total));
+    let _ = status_tx.send(format!("[ converting 0 of {total} wallpapers... ]"));
+
+    for src in &to_convert {
         let src = src.clone();
         let cache = slug_cache_dir_arc.clone();
         let dst = cache.join(src.file_name().unwrap());
+        let filename = src
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
 
         set.spawn(async move {
-            let status = tokio::process::Command::new("gowall")
+            let child = tokio::process::Command::new("gowall")
                 .args([
                     "convert",
-                    src.to_str().unwrap(),
+                    src.to_str().unwrap_or_default(),
                     "-t",
                     crate::pipeline::gowall::PALETTE_JSON_PATH,
                     "--output",
-                    dst.to_str().unwrap(),
+                    dst.to_str().unwrap_or_default(),
                 ])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .status()
-                .await
-                .context("spawning gowall")?;
-            if !status.success() {
-                anyhow::bail!("gowall failed for {}", src.display());
-            }
-            Ok(())
+                .kill_on_drop(true)
+                .spawn();
+
+            let Ok(mut child) = child else { return Err(filename); };
+
+            let ok = match tokio::time::timeout(
+                tokio::time::Duration::from_secs(90),
+                child.wait(),
+            )
+            .await
+            {
+                Ok(Ok(s)) => s.success(),
+                _ => {
+                    let _ = child.kill().await;
+                    false
+                }
+            };
+
+            if ok { Ok(()) } else { Err(filename) }
         });
     }
 
-    while let Some(result) = set.join_next().await {
-        result.context("task panicked")??;
+    // Collect results — keep going even when individual files fail.
+    let mut completed = 0usize;
+    let mut failed: Vec<String> = Vec::new();
+    while let Some(join_result) = set.join_next().await {
+        match join_result.context("task panicked")? {
+            Ok(()) => completed += 1,
+            Err(filename) => {
+                // Exclude failed entries so is_cached() won't return true for them.
+                all_entries.remove(&filename);
+                failed.push(filename);
+            }
+        }
+        let done = completed + failed.len();
+        let _ = status_tx.send(format!("[ converting {done} of {total} wallpapers... ]"));
     }
 
+    // Save manifest for everything that succeeded before reporting failures.
     let manifest = Manifest {
         scheme_slug: scheme.slug.clone(),
         entries: all_entries,
     };
     manifest.save(&slug_cache_dir)?;
 
-    let _ = status_tx.send(format!("[ converted {total} wallpapers ]"));
-    Ok(())
+    if failed.is_empty() {
+        let _ = status_tx.send(format!("[ converted {completed} wallpapers ]"));
+        Ok(())
+    } else {
+        let _ = status_tx.send(format!(
+            "[ {completed} done, {} failed ]",
+            failed.len()
+        ));
+        anyhow::bail!(
+            "{} wallpaper(s) failed to convert: {}",
+            failed.len(),
+            failed.join(", ")
+        )
+    }
 }
 
 fn is_image(path: &Path) -> bool {
