@@ -2,6 +2,7 @@ use crate::schemes::types::{Scheme, SchemeSystem};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::path::Path;
+use std::process::Stdio;
 use tokio::process::Command;
 
 pub const PALETTE_JSON_PATH: &str = "/tmp/gnomad-current-scheme.json";
@@ -39,6 +40,8 @@ async fn run_gowall(input: &Path, output: &Path) -> Result<()> {
             "--output",
             output.to_str().unwrap(),
         ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .await
         .context("spawning gowall")?;

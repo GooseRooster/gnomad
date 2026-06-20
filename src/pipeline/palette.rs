@@ -24,6 +24,8 @@ pub fn build_color_map(scheme: &Scheme) -> HashMap<String, String> {
     add(&mut m, "card_fg_color", &scheme.base05);
     add(&mut m, "sidebar_bg_color", &scheme.base01);
     add(&mut m, "sidebar_fg_color", &scheme.base05);
+    add(&mut m, "sidebar_backdrop_color", &scheme.base00);
+    add(&mut m, "sidebar_border_color", &scheme.base03);
     add(&mut m, "panel_bg_color", &scheme.base01);
     add(&mut m, "panel_fg_color", &scheme.base05);
     add(&mut m, "overview_bg_color", &scheme.base00);
@@ -31,10 +33,24 @@ pub fn build_color_map(scheme: &Scheme) -> HashMap<String, String> {
     add(&mut m, "color_fg_color", &scheme.base05);
     add(&mut m, "border_color", &scheme.base03);
 
+    // LibAdwaita window decoration tokens
+    add(&mut m, "headerbar_backdrop_color", &scheme.base00);
+    add(&mut m, "headerbar_shade_color", &scheme.base00);
+    add(&mut m, "headerbar_border_color", &scheme.base03);
+    add(&mut m, "card_shade_color", &scheme.base00);
+    add(&mut m, "dialog_bg_color", &scheme.base01);
+    add(&mut m, "dialog_fg_color", &scheme.base05);
+    add(&mut m, "popover_bg_color", &scheme.base01);
+    add(&mut m, "popover_fg_color", &scheme.base05);
+
     add(&mut m, "accent_color", &scheme.base0d);
     add(&mut m, "accent_bg_color", &scheme.base0d);
     // Choose fg that contrasts against the accent background
-    let accent_fg = if luminance(&scheme.base0d) > 0.4 { &scheme.base00 } else { &scheme.base07 };
+    let accent_fg = if luminance(&scheme.base0d) > 0.4 {
+        &scheme.base00
+    } else {
+        &scheme.base07
+    };
     add(&mut m, "accent_fg_color", accent_fg);
 
     add(&mut m, "success_color", &scheme.base0b);

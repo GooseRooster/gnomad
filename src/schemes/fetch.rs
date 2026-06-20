@@ -1,6 +1,7 @@
 use crate::schemes::types::{parse_scheme_yaml, Scheme};
 use anyhow::{Context, Result};
 use std::path::Path;
+use std::process::Stdio;
 use tokio::process::Command;
 
 /// Clone the tinted-theming/schemes repo on first run.
@@ -15,6 +16,8 @@ pub async fn clone_schemes_repo(repo_dir: &Path) -> Result<()> {
             "https://github.com/tinted-theming/schemes",
             repo_dir.to_str().unwrap(),
         ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .await
         .context("spawning git clone")?;
@@ -30,6 +33,8 @@ pub async fn update_schemes_repo(repo_dir: &Path) -> Result<()> {
     let status = Command::new("git")
         .args(["pull", "--ff-only"])
         .current_dir(repo_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .await
         .context("spawning git pull")?;

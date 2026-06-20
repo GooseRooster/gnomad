@@ -11,6 +11,7 @@ use clap::Parser;
 use config::Config;
 use pipeline::gnome::GnomeInterface;
 use schemes::fetch;
+use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -35,11 +36,31 @@ async fn main() -> Result<()> {
     } else {
         EnvFilter::from_default_env()
     };
-    tracing_subscriber::fmt()
-        .with_env_filter(log_filter)
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .init();
+
+    if cli.verbose {
+        let log_path = dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()))
+            .join("gnomad")
+            .join("gnomad.log");
+        std::fs::create_dir_all(log_path.parent().unwrap()).ok();
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .with_context(|| format!("opening log file {}", log_path.display()))?;
+        tracing_subscriber::fmt()
+            .with_env_filter(log_filter)
+            .with_target(false)
+            .with_writer(log_file)
+            .init();
+        eprintln!("gnomad: verbose logging → {}", log_path.display());
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(log_filter)
+            .with_target(false)
+            .with_writer(std::io::stderr)
+            .init();
+    }
 
     let config_existed = config::config_path().exists();
     let config = Config::load().context("loading config")?;

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::path::Path;
+use std::process::Stdio;
 
 pub struct GnomeInterface;
 
@@ -72,6 +73,8 @@ impl GnomeInterface {
     async fn gsettings_set(&self, schema: &str, key: &str, value: &str) -> Result<()> {
         let status = tokio::process::Command::new("gsettings")
             .args(["set", schema, key, value])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .await
             .with_context(|| format!("gsettings set {schema} {key}"))?;
