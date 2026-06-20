@@ -79,6 +79,13 @@ impl App {
             // Must happen before the next draw, not inside it.
             if self.need_terminal_clear {
                 self.need_terminal_clear = false;
+                // Delete all kitty graphics protocol images. CSI 2J (sent by
+                // terminal.clear()) does not remove virtual-placement images from
+                // the terminal's pixel layer; the kitty APC delete-all command does.
+                // Non-kitty terminals ignore unrecognised APC sequences.
+                use std::io::Write;
+                let _ = terminal.backend_mut().write_all(b"\x1b_Ga=d,d=A\x1b\\");
+                let _ = terminal.backend_mut().flush();
                 terminal.clear()?;
             }
 

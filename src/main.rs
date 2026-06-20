@@ -157,6 +157,9 @@ async fn main() -> Result<()> {
             .find(|s| &s.slug == slug)
             .cloned();
     }
+    // Re-run the filter now that active_scheme is populated so it floats to the top
+    // on first open (set_schemes above called rebuild_filter when active_scheme was None).
+    app.state.rebuild_filter(app.config.follow_user_scheme_type);
 
     let result = app.run(&mut terminal).await;
     ratatui::restore();
