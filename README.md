@@ -156,7 +156,7 @@ When you press `Enter` on a scheme, gnomad runs these steps sequentially with a 
 
 1. **gowall** — converts your current wallpaper to the new palette
 2. **Tinty** — `tinty apply <slug>` — propagates the scheme to configured terminal apps
-3. **GTK CSS** — writes colour variables to `~/.config/gtk-3.0/gtk.css` and `~/.config/gtk-4.0/gtk.css`
+3. **GTK CSS** — writes colour variables to `~/.config/gtk-3.0/gtk.css` (full template) and `~/.config/gtk-4.0/gnomad-colors.css` (@define-color entries imported by `gtk.css`); GTK4's CSS file-watcher picks up the change and reloads colours in running LibAdwaita apps automatically
 4. **Shell CSS** — writes a fully-resolved `gnome-shell.css` to `~/.local/share/themes/gnomad/gnome-shell/`
 5. **GNOME reload** — sets the wallpaper URI via gsettings, then toggles `color-scheme` to force the shell to re-read the CSS
 
@@ -210,11 +210,18 @@ As always, feature requests, PRs, issues, and bug reports welcome. If the scope 
 ---
 
 ## Third Party Contributions
-[Rewaita](https://github.com/SwordPuffin/Rewaita) - CSS templates
+- [Rewaita](https://github.com/SwordPuffin/Rewaita) — CSS templates (GPL-3.0)
+- [ChromaLeon](https://github.com/DerDakon/ChromaLeon) — GTK4 live CSS reload architecture (GPL-3.0)
+
+  gnomad's GTK4 theming writes colour variables to a separate `gnomad-colors.css` file and has
+  `gtk.css` import it, rather than writing directly to `gtk.css`. This `@import` pattern is how
+  GTK4's CSS provider file-watching is triggered to reload colours in running LibAdwaita apps
+  without restarting them. We discovered this mechanism by studying ChromaLeon's source.
 
 ## Special Thanks
 
 - [Rewaita](https://github.com/SwordPuffin/Rewaita) - please check it out. I was heavily inspired by the approach Rewaita takes to theming and the CSS templates were directly responsible for even making gnomad possible. Try it, star it!!!
+- [ChromaLeon](https://github.com/DerDakon/ChromaLeon) - the GTK4 live reload trick that makes running LibAdwaita apps pick up new colours instantly. Genuinely could not have cracked this without studying their code.
 - [Tinted Theming](https://github.com/tinted-theming/home.git) - the incredible base* and tinted* colorscheme support and scheme repository.
 - [Gowall](https://github.com/tinted-theming/home.git) - Wallpaper color scheming. What's not to love?
 - [Ratatui](https://ratatui.rs) - Cookin

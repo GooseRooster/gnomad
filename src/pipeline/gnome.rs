@@ -45,7 +45,10 @@ impl GnomeInterface {
         )
         .await?;
 
-        //tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Give LibAdwaita time to process the "opposite" signal and re-read gtk-4.0/gtk.css
+        // before we restore to target. Without this gap the two gsettings writes can be
+        // coalesced and running apps never pick up the new CSS.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 
         self.gsettings_set(
             "org.gnome.desktop.interface",
