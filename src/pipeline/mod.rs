@@ -12,13 +12,15 @@ use crate::schemes::types::Scheme;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use tokio::sync::watch;
+use tracing::debug;
 
 /// Run the full scheme-switch pipeline.
-/// The status sender is updated at each step for the animation overlay.
+/// `source_wallpaper` must be the ORIGINAL file from the wallpaper directory,
+/// never the converted output path (to prevent quality degradation on repeat switches).
 pub async fn apply_scheme(
     scheme: &Scheme,
     config: &Config,
-    current_wallpaper: Option<&Path>,
+    source_wallpaper: Option<&Path>,
     status_tx: watch::Sender<String>,
 ) -> Result<PathBuf> {
     let gnome = gnome::GnomeInterface::new().await?;
@@ -26,35 +28,45 @@ pub async fn apply_scheme(
     // Step 1: Convert wallpaper with gowall
     let _ = status_tx.send("[ converting wallpaper... ]".to_string());
     let output_wall = &config.output_wallpaper_path;
-    if let Some(input) = current_wallpaper {
+    if let Some(source) = source_wallpaper {
         let cache_dir = config.wallpaper_cache_dir.join(&scheme.slug);
-        // Check if already converted for this scheme
-        let cached = wallpaper_cache::cached_path(input, &cache_dir);
-        let source = cached.as_deref().unwrap_or(input);
-        if cached.is_none() {
-            gowall::convert_wallpaper(scheme, source, output_wall).await?;
+        debug!("wallpaper source: {}", source.display());
+        debug!("wallpaper cache dir: {}", cache_dir.display());
+        debug!("output wall: {}", output_wall.display());
+
+        let cached = wallpaper_cache::cached_path(source, &cache_dir);
+        if let Some(ref c) = cached {
+            debug!("cache hit: {}", c.display());
+            tokio::fs::copy(c, output_wall).await?;
         } else {
-            // Already converted — just copy to output path
-            tokio::fs::copy(source, output_wall).await?;
+            debug!("cache miss — running gowall");
+            gowall::convert_wallpaper(scheme, source, output_wall).await?;
         }
     }
 
     // Step 2: Tinty
     let _ = status_tx.send("[ applying tinty scheme... ]".to_string());
-    tinty::apply_scheme(&scheme.slug).await?;
+    let scheme_arg = format!("{}-{}", &scheme.system.tag(true), scheme.slug);
+    debug!("tinty apply: {scheme_arg}");
+    tinty::apply_scheme(&scheme_arg).await?;
 
     // Step 3: GTK CSS
     let _ = status_tx.send("[ writing gtk css... ]".to_string());
-    gtk_css::write_gtk_css(scheme)?;
+    debug!("writing gtk css");
+    gtk_css::write_gtk_css(scheme).map_err(|e| { tracing::error!("gtk css: {e:#}"); e })?;
 
     // Step 4: Shell CSS
     let _ = status_tx.send("[ writing shell css... ]".to_string());
-    shell_css::write_shell_css(scheme, &config.theme_name)?;
+    debug!("writing shell css to theme: {}", config.theme_name);
+    shell_css::write_shell_css(scheme, &config.theme_name)
+        .map_err(|e| { tracing::error!("shell css: {e:#}"); e })?;
     shell_css::write_theme_index(&config.theme_name)?;
 
     // Step 5: GNOME integration
     let _ = status_tx.send("[ reloading shell... ]".to_string());
+    debug!("setting wallpaper: {}", output_wall.display());
     gnome.set_wallpaper(output_wall).await?;
+    debug!("reloading shell css");
     gnome.reload_shell_css().await?;
 
     Ok(output_wall.clone())
@@ -71,10 +83,12 @@ pub async fn apply_wallpaper(
     let gnome = gnome::GnomeInterface::new().await?;
     let output = &config.output_wallpaper_path;
 
-    let skip_convert = active_scheme.map(|s| {
-        let cache_dir = config.wallpaper_cache_dir.join(&s.slug);
-        wallpaper_cache::is_cached(wallpaper, &cache_dir)
-    }).unwrap_or(false);
+    let skip_convert = active_scheme
+        .map(|s| {
+            let cache_dir = config.wallpaper_cache_dir.join(&s.slug);
+            wallpaper_cache::is_cached(wallpaper, &cache_dir)
+        })
+        .unwrap_or(false);
 
     if skip_convert {
         let _ = status_tx.send("[ applying wallpaper (cached)... ]".to_string());

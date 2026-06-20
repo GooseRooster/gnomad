@@ -10,10 +10,16 @@ pub enum SchemeSystem {
 }
 
 impl SchemeSystem {
-    pub fn tag(&self) -> &'static str {
+    pub fn tag(&self, is_prefix: bool) -> &'static str {
         match self {
-            SchemeSystem::Base16 => "b16",
-            SchemeSystem::Base24 => "b24",
+            SchemeSystem::Base16 => match is_prefix {
+                true => "base16",
+                false => "b16",
+            },
+            SchemeSystem::Base24 => match is_prefix {
+                true => "base24",
+                false => "b24",
+            },
         }
     }
 }
@@ -103,8 +109,7 @@ fn parse_new_format(yaml_str: &str, slug: String, is_custom: bool) -> Result<Sch
             .ok_or_else(|| anyhow::anyhow!("missing palette slot {key}"))
     };
     let get_opt = |key: &str| -> Option<String> {
-        p.get(key)
-            .map(|s| s.trim_start_matches('#').to_lowercase())
+        p.get(key).map(|s| s.trim_start_matches('#').to_lowercase())
     };
 
     Ok(Scheme {

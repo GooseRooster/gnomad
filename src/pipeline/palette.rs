@@ -33,7 +33,9 @@ pub fn build_color_map(scheme: &Scheme) -> HashMap<String, String> {
 
     add(&mut m, "accent_color", &scheme.base0d);
     add(&mut m, "accent_bg_color", &scheme.base0d);
-    add(&mut m, "accent_fg_color", &scheme.base07);
+    // Choose fg that contrasts against the accent background
+    let accent_fg = if luminance(&scheme.base0d) > 0.4 { &scheme.base00 } else { &scheme.base07 };
+    add(&mut m, "accent_fg_color", accent_fg);
 
     add(&mut m, "success_color", &scheme.base0b);
     add(&mut m, "success_bg_color", &scheme.base0b);
@@ -80,6 +82,11 @@ pub fn build_color_map(scheme: &Scheme) -> HashMap<String, String> {
     }
 
     m
+}
+
+fn luminance(hex: &str) -> f32 {
+    let (r, g, b) = hex_to_rgb_tuple(hex);
+    (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) / 255.0
 }
 
 /// Apply the colour map to a CSS template via direct `@var_name` substitution.

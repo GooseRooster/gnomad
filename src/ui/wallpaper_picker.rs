@@ -114,6 +114,7 @@ fn render_preview(
     };
 
     if let Some(proto) = image_proto {
+        f.render_widget(ratatui::widgets::Clear, inner);
         f.render_stateful_widget(StatefulImage::new(None), inner, proto);
     } else {
         // Fallback text when terminal has no graphics support

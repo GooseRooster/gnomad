@@ -1,11 +1,11 @@
 use crate::schemes::types::{Scheme, SchemeSystem};
 use crate::state::AppState;
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    Frame,
 };
 
 pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
@@ -27,7 +27,7 @@ fn render_list(f: &mut Frame, area: Rect, state: &AppState) {
             let tag = if scheme.is_custom {
                 "  *"
             } else {
-                scheme.system.tag()
+                scheme.system.tag(false)
             };
 
             let active = state
@@ -58,9 +58,7 @@ fn render_list(f: &mut Frame, area: Rect, state: &AppState) {
         format!(" SCHEMES / {} ", state.search_query)
     };
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(title);
+    let block = Block::default().borders(Borders::ALL).title(title);
 
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected_scheme_idx));
@@ -138,8 +136,7 @@ fn render_swatch_row(f: &mut Frame, area: Rect, colors: &[&str]) {
             height: area.height,
         };
         let color = hex_to_ratatui_color(hex);
-        let block = Block::default()
-            .style(Style::default().bg(color));
+        let block = Block::default().style(Style::default().bg(color));
         f.render_widget(block, swatch_area);
     }
 }
@@ -158,20 +155,22 @@ fn hex_to_ratatui_color(hex: &str) -> Color {
 }
 
 fn base16_colors_row1<'a>(s: &'a Scheme) -> Vec<&'a str> {
-    vec![&s.base00, &s.base01, &s.base02, &s.base03,
-         &s.base04, &s.base05, &s.base06, &s.base07]
+    vec![
+        &s.base00, &s.base01, &s.base02, &s.base03, &s.base04, &s.base05, &s.base06, &s.base07,
+    ]
 }
 
 fn base16_colors_row2<'a>(s: &'a Scheme) -> Vec<&'a str> {
-    vec![&s.base08, &s.base09, &s.base0a, &s.base0b,
-         &s.base0c, &s.base0d, &s.base0e, &s.base0f]
+    vec![
+        &s.base08, &s.base09, &s.base0a, &s.base0b, &s.base0c, &s.base0d, &s.base0e, &s.base0f,
+    ]
 }
 
 fn base24_colors<'a>(s: &'a Scheme) -> Vec<&'a str> {
     let mut row = Vec::new();
-    for slot in [&s.base10, &s.base11, &s.base12, &s.base13,
-                 &s.base14, &s.base15, &s.base16, &s.base17]
-    {
+    for slot in [
+        &s.base10, &s.base11, &s.base12, &s.base13, &s.base14, &s.base15, &s.base16, &s.base17,
+    ] {
         if let Some(h) = slot {
             row.push(h.as_str());
         }

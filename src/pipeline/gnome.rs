@@ -58,11 +58,13 @@ impl GnomeInterface {
 
     pub async fn is_user_themes_enabled(&self) -> bool {
         let result = tokio::process::Command::new("gnome-extensions")
-            .args(["info", "user-theme@gnome-shell-extensions.gcampax.github.com"])
+            .args(["list", "--enabled"])
             .output()
             .await;
         match result {
-            Ok(out) => String::from_utf8_lossy(&out.stdout).contains("State: ENABLED"),
+            Ok(out) => String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|l| l.trim() == "user-theme@gnome-shell-extensions.gcampax.github.com"),
             Err(_) => false,
         }
     }

@@ -21,17 +21,35 @@ struct Cli {
 
     #[arg(long, value_name = "SLUG", help = "Apply a scheme headlessly and exit")]
     apply: Option<String>,
+
+    #[arg(short, long, help = "Enable debug logging (pipeline steps, paths, errors)")]
+    verbose: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let log_filter = if cli.verbose {
+        EnvFilter::new("gnomad=debug")
+    } else {
+        EnvFilter::from_default_env()
+    };
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(log_filter)
         .with_target(false)
+        .with_writer(std::io::stderr)
         .init();
 
-    let cli = Cli::parse();
+    let config_existed = config::config_path().exists();
     let config = Config::load().context("loading config")?;
+    if !config_existed {
+        if let Err(e) = config.save() {
+            eprintln!("gnomad: could not write default config: {e}");
+        } else {
+            eprintln!("gnomad: created default config at {}", config::config_path().display());
+        }
+    }
 
     // Startup checks
     check_binary("git")?;
