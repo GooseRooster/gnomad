@@ -2,6 +2,12 @@
 name = "gnomad"
 version = "0.2.0"
 edition = "2021"
+description = "A lightweight TUI for managing tinted color schemes in the GNOME shell"
+readme = "README.md"
+repository = "https://github.com/GooseRooster/gnomad"
+license = "GPL-3.0-or-later"
+keywords = ["tui", "theming"]
+categories = ["command-line-interface", "os::linux-apis"]
 
 [dependencies]
 ratatui = "0.29"
