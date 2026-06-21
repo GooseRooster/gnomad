@@ -14,7 +14,6 @@ Browse and apply base16/base24 colour schemes across your entire GNOME desktop i
 https://youtu.be/VyY0kjDfrCM
 
 ## Screenshots
-<img width="1016" height="269" alt="Screenshot From 2026-06-21 19-38-53" src="https://github.com/user-attachments/assets/650f0dd3-7579-40c3-88da-2717b89ce3cc" />
 <img width="3440" height="1440" alt="Screenshot From 2026-06-21 19-04-19" src="https://github.com/user-attachments/assets/6a247637-0d6c-47b5-9baf-1424e3626db8" />
 <img width="1744" height="1330" alt="Screenshot From 2026-06-21 19-03-25" src="https://github.com/user-attachments/assets/f58343cd-74af-4271-9915-7ab7e4971e3e" />
 <img width="1744" height="1330" alt="Screenshot From 2026-06-21 19-03-12" src="https://github.com/user-attachments/assets/85c592e0-75b5-4345-9fcc-13f8017ae9e8" />
