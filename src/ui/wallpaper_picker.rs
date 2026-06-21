@@ -17,6 +17,7 @@ pub fn render(
     wallpaper_dir: &Path,
     wallpaper_cache_dir: &Path,
     image_proto: Option<&mut StatefulProtocol>,
+    picker_exists: bool,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -24,7 +25,7 @@ pub fn render(
         .split(area);
 
     render_list(f, chunks[0], state, wallpaper_dir, wallpaper_cache_dir);
-    render_preview(f, chunks[1], state, wallpaper_cache_dir, image_proto);
+    render_preview(f, chunks[1], state, wallpaper_cache_dir, image_proto, picker_exists);
 
     if state.mode == AppMode::EditingDir {
         render_dir_prompt(f, area, state);
@@ -99,6 +100,7 @@ fn render_preview(
     state: &AppState,
     wallpaper_cache_dir: &Path,
     image_proto: Option<&mut StatefulProtocol>,
+    picker_exists: bool,
 ) {
     let block = Block::default().borders(Borders::ALL).title(" PREVIEW ");
     let inner = block.inner(area);
@@ -116,14 +118,20 @@ fn render_preview(
     if let Some(proto) = image_proto {
         f.render_widget(ratatui::widgets::Clear, inner);
         f.render_stateful_widget(StatefulImage::new(None), inner, proto);
+    } else if picker_exists {
+        let filename = wallpaper.file_name().and_then(|f| f.to_str()).unwrap_or("?");
+        f.render_widget(
+            Paragraph::new(format!("\n  {filename}\n\n  Loading preview..."))
+                .style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
     } else {
-        // Fallback text when terminal has no graphics support
         let filename = wallpaper.file_name().and_then(|f| f.to_str()).unwrap_or("?");
         let cached = state.active_scheme.as_ref().map(|s| {
             wallpaper_cache::is_cached(wallpaper, &wallpaper_cache_dir.join(&s.slug))
         }).unwrap_or(false);
         let status = if cached { "converted" } else { "original" };
-        let info = format!("\n  {filename}\n\n  [{status}]\n\n  (no graphics support detected)");
+        let info = format!("\n  {filename}\n\n  [{status}]\n\n  (no graphics protocol support detected)");
         f.render_widget(
             Paragraph::new(info).style(Style::default().fg(Color::White)),
             inner,

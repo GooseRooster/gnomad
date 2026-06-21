@@ -152,6 +152,7 @@ impl App {
                         self.state.last_error = None;
                         // Re-pin the newly active scheme at the top of the list.
                         self.state.rebuild_filter(self.config.follow_user_scheme_type);
+                        self.sort_wallpapers_by_cache();
                         self.invalidate_preview();
                     }
                     Err(e) => self.state.last_error = Some(format!("{e:#}")),
@@ -293,6 +294,7 @@ impl App {
                     &wd,
                     &wcd,
                     self.image_proto.as_mut(),
+                    self.picker.is_some(),
                 );
             }
         }
@@ -650,11 +652,36 @@ impl App {
             .collect();
         entries.sort();
         self.state.wallpapers = entries;
+        self.sort_wallpapers_by_cache();
         self.invalidate_preview();
     }
 
     fn invalidate_preview(&mut self) {
         self.preview_path = None;
         self.maybe_start_image_load();
+    }
+
+    /// Re-sort the wallpaper list so cached entries for the current scheme come first.
+    fn sort_wallpapers_by_cache(&mut self) {
+        let current = self.state.wallpapers.get(self.state.selected_wallpaper_idx).cloned();
+        let cache_dir = self.state.active_scheme.as_ref()
+            .map(|s| self.config.wallpaper_cache_dir.join(&s.slug));
+        self.state.wallpapers.sort_by(|a, b| {
+            // Check file existence rather than manifest validity — this surfaces already-
+            // converted wallpapers even when the manifest is absent or stale.
+            let exists_in_cache = |p: &std::path::PathBuf| -> bool {
+                let Some(ref cd) = cache_dir else { return false; };
+                let Some(name) = p.file_name() else { return false; };
+                cd.join(name).exists()
+            };
+            let a_cached = exists_in_cache(a);
+            let b_cached = exists_in_cache(b);
+            b_cached.cmp(&a_cached).then_with(|| a.cmp(b))
+        });
+        if let Some(current) = current {
+            if let Some(idx) = self.state.wallpapers.iter().position(|w| w == &current) {
+                self.state.selected_wallpaper_idx = idx;
+            }
+        }
     }
 }

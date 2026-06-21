@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::task::JoinSet;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Manifest {
@@ -70,8 +69,8 @@ pub fn cached_path(wallpaper_path: &Path, cache_dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Batch-convert all images in wallpaper_dir for the given scheme.
-/// If force is true, skip manifest check and reconvert everything.
+/// Batch-convert all images in wallpaper_dir for the given scheme using a single
+/// `gowall convert --dir` invocation. If force is true, skip the manifest check.
 pub async fn batch_convert(
     scheme: &Scheme,
     wallpaper_dir: &Path,
@@ -84,15 +83,11 @@ pub async fn batch_convert(
 
     write_palette_json(scheme)?;
 
-    let existing_manifest = if force {
-        None
-    } else {
-        Manifest::load(&slug_cache_dir)
-    };
+    // Collect source images and check how many still need converting.
+    let mut source_entries: HashMap<String, ManifestEntry> = HashMap::new();
+    let mut uncached_count = 0usize;
 
-    // Collect images to convert
-    let mut to_convert: Vec<PathBuf> = Vec::new();
-    let mut all_entries: HashMap<String, ManifestEntry> = HashMap::new();
+    let existing_manifest = if force { None } else { Manifest::load(&slug_cache_dir) };
 
     let mut read_dir = tokio::fs::read_dir(wallpaper_dir)
         .await
@@ -108,7 +103,6 @@ pub async fn batch_convert(
             .and_then(|f| f.to_str())
             .unwrap_or("")
             .to_string();
-
         let mtime = std::fs::metadata(&path)
             .and_then(|m| m.modified())
             .ok()
@@ -116,116 +110,90 @@ pub async fn batch_convert(
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        all_entries.insert(
-            filename.clone(),
-            ManifestEntry {
-                source: path.to_string_lossy().to_string(),
-                mtime_secs: mtime,
-            },
-        );
-
-        let already_done = existing_manifest.as_ref().and_then(|m| m.entries.get(&filename))
+        let already_done = existing_manifest
+            .as_ref()
+            .and_then(|m| m.entries.get(&filename))
             .map(|e| e.mtime_secs == mtime && slug_cache_dir.join(&filename).exists())
             .unwrap_or(false);
 
         if !already_done {
-            to_convert.push(path);
+            uncached_count += 1;
         }
-    }
 
-    let total = to_convert.len();
-    if total == 0 {
-        let _ = status_tx.send(format!("[ all {} wallpapers already cached ]", all_entries.len()));
-        return Ok(());
-    }
-
-    // Each task returns Ok(()) on success or Err(filename) on failure so that
-    // individual errors are collected without cancelling the rest of the set.
-    let mut set: JoinSet<std::result::Result<(), String>> = JoinSet::new();
-    let slug_cache_dir_arc = std::sync::Arc::new(slug_cache_dir.clone());
-
-    let _ = status_tx.send(format!("[ converting 0 of {total} wallpapers... ]"));
-
-    for src in &to_convert {
-        let src = src.clone();
-        let cache = slug_cache_dir_arc.clone();
-        let dst = cache.join(src.file_name().unwrap());
-        let filename = src
-            .file_name()
-            .map(|f| f.to_string_lossy().into_owned())
-            .unwrap_or_default();
-
-        set.spawn(async move {
-            let child = tokio::process::Command::new("gowall")
-                .args([
-                    "convert",
-                    src.to_str().unwrap_or_default(),
-                    "-t",
-                    crate::pipeline::gowall::PALETTE_JSON_PATH,
-                    "--output",
-                    dst.to_str().unwrap_or_default(),
-                ])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
-                .spawn();
-
-            let Ok(mut child) = child else { return Err(filename); };
-
-            let ok = match tokio::time::timeout(
-                tokio::time::Duration::from_secs(90),
-                child.wait(),
-            )
-            .await
-            {
-                Ok(Ok(s)) => s.success(),
-                _ => {
-                    let _ = child.kill().await;
-                    false
-                }
-            };
-
-            if ok { Ok(()) } else { Err(filename) }
+        source_entries.insert(filename, ManifestEntry {
+            source: path.to_string_lossy().to_string(),
+            mtime_secs: mtime,
         });
     }
 
-    // Collect results — keep going even when individual files fail.
-    let mut completed = 0usize;
-    let mut failed: Vec<String> = Vec::new();
-    while let Some(join_result) = set.join_next().await {
-        match join_result.context("task panicked")? {
-            Ok(()) => completed += 1,
-            Err(filename) => {
-                // Exclude failed entries so is_cached() won't return true for them.
-                all_entries.remove(&filename);
-                failed.push(filename);
-            }
-        }
-        let done = completed + failed.len();
-        let _ = status_tx.send(format!("[ converting {done} of {total} wallpapers... ]"));
+    let source_count = source_entries.len();
+
+    if uncached_count == 0 {
+        let _ = status_tx.send(format!("[ all {source_count} wallpapers already cached ]"));
+        return Ok(());
     }
 
-    // Save manifest for everything that succeeded before reporting failures.
-    let manifest = Manifest {
-        scheme_slug: scheme.slug.clone(),
-        entries: all_entries,
+    let _ = status_tx.send(format!("[ converting {source_count} wallpapers... ]"));
+
+    let mut child = tokio::process::Command::new("gowall")
+        .args([
+            "convert",
+            "--dir", wallpaper_dir.to_str().unwrap_or_default(),
+            "-t", crate::pipeline::gowall::PALETTE_JSON_PATH,
+            "--output", slug_cache_dir.to_str().unwrap_or_default(),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .context("spawning gowall")?;
+
+    let ok = match tokio::time::timeout(
+        tokio::time::Duration::from_secs(600),
+        child.wait(),
+    )
+    .await
+    {
+        Ok(Ok(s)) => s.success(),
+        _ => {
+            let _ = child.kill().await;
+            false
+        }
     };
+
+    if !ok {
+        let _ = status_tx.send("[ batch conversion failed ]".to_string());
+        anyhow::bail!("gowall --dir conversion failed");
+    }
+
+    // Build manifest from what gowall actually wrote to the output directory.
+    let manifest = build_manifest_from_output(scheme, &source_entries, &slug_cache_dir)?;
+    let completed = manifest.entries.len();
+    let failed = source_count.saturating_sub(completed);
     manifest.save(&slug_cache_dir)?;
 
-    if failed.is_empty() {
+    if failed == 0 {
         let _ = status_tx.send(format!("[ converted {completed} wallpapers ]"));
         Ok(())
     } else {
-        let _ = status_tx.send(format!(
-            "[ {completed} done, {} failed ]",
-            failed.len()
-        ));
-        anyhow::bail!(
-            "{} wallpaper(s) failed to convert: {}",
-            failed.len(),
-            failed.join(", ")
-        )
+        let _ = status_tx.send(format!("[ {completed} done, {failed} failed ]"));
+        anyhow::bail!("{failed} wallpaper(s) failed to convert")
     }
+}
+
+/// Build a manifest by checking which source images have a corresponding output
+/// file in the cache dir. Only entries that were successfully written are included.
+fn build_manifest_from_output(
+    scheme: &Scheme,
+    source_entries: &HashMap<String, ManifestEntry>,
+    slug_cache_dir: &Path,
+) -> Result<Manifest> {
+    let entries = source_entries
+        .iter()
+        .filter(|(filename, _)| slug_cache_dir.join(filename).exists())
+        .map(|(filename, entry)| (filename.clone(), entry.clone()))
+        .collect();
+    Ok(Manifest { scheme_slug: scheme.slug.clone(), entries })
 }
 
 fn is_image(path: &Path) -> bool {
