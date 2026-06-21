@@ -1,7 +1,5 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GooseRooster/gnomad)
 
-# Important note
-Currently still in heavy development and testing. A release will be published soon.
 
 # gnomad
 
@@ -11,8 +9,18 @@ Browse and apply base16/base24 colour schemes across your entire GNOME desktop i
 
 ---
 
+
+## Video 
+https://youtu.be/VyY0kjDfrCM
+
 ## Screenshots
-(coming soon)
+<img width="1016" height="269" alt="Screenshot From 2026-06-21 19-38-53" src="https://github.com/user-attachments/assets/650f0dd3-7579-40c3-88da-2717b89ce3cc" />
+<img width="3440" height="1440" alt="Screenshot From 2026-06-21 19-04-19" src="https://github.com/user-attachments/assets/6a247637-0d6c-47b5-9baf-1424e3626db8" />
+<img width="1744" height="1330" alt="Screenshot From 2026-06-21 19-03-25" src="https://github.com/user-attachments/assets/f58343cd-74af-4271-9915-7ab7e4971e3e" />
+<img width="1744" height="1330" alt="Screenshot From 2026-06-21 19-03-12" src="https://github.com/user-attachments/assets/85c592e0-75b5-4345-9fcc-13f8017ae9e8" />
+<img width="3490" height="974" alt="Screenshot From 2026-06-21 19-00-15" src="https://github.com/user-attachments/assets/b19cd110-bea6-48ea-aae4-1d3f1a093c89" />
+<img width="3440" height="1440" alt="Screenshot From 2026-06-21 18-59-48" src="https://github.com/user-attachments/assets/1c6ace95-ed73-4ec5-b4ec-6d5c07ab263e" />
+
 
 ---
 
@@ -34,6 +42,7 @@ Browse and apply base16/base24 colour schemes across your entire GNOME desktop i
 ## Requirements
 
 - GNOME 45+ on Wayland
+- `rustup` installed from your distribution's package manager 
 - `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation)
 - `tinty` in `$PATH` — `cargo install tinty`
 - `git` in `$PATH`
@@ -42,14 +51,17 @@ Browse and apply base16/base24 colour schemes across your entire GNOME desktop i
 ---
 
 ## Installation
-Manual installation
+Install from cargo
+```bash
+cargo install gnomad
+```
+
+Building manually from source
 ```bash
 git clone https://github.com/GooseRooser/gnomad
 cd gnomad
 cargo install --path .
 ```
-
-Cargo package will be published later.
 
 On first launch gnomad will clone the tinted-theming schemes repository into `~/.local/share/gnomad/schemes-repo` automatically.
 
@@ -159,13 +171,13 @@ The wallpaper directory can also be changed at runtime with `[d]` in the wallpap
 When you press `Enter` on a scheme, gnomad runs these steps sequentially with a spinner overlay:
 
 1. **gowall** — converts your current wallpaper to the new palette
-2. **Tinty** — `tinty apply <slug>` — propagates the scheme to configured terminal apps
-3. **GTK CSS** — writes colour variables to `~/.config/gtk-3.0/gtk.css` (full template) and `~/.config/gtk-4.0/gnomad-colors.css` (@define-color entries imported by `gtk.css`); GTK4's CSS file-watcher picks up the change and reloads colours in running LibAdwaita apps automatically
+2. **Tinty** — `tinty apply <slug>` — propagates the scheme to configured apps and terminals
+3. **GTK CSS** — writes colour variables to `~/.config/gtk-3.0/gtk.css` (full template) and `~/.config/gtk-4.0/gnomad-colors.css` (@define-color entries imported by `gtk.css`); 
 4. **Shell CSS** — writes a fully-resolved `gnome-shell.css` to `~/.local/share/themes/gnomad/gnome-shell/`
 5. **GNOME reload** — sets the wallpaper URI via gsettings, then toggles `color-scheme` to force the shell to re-read the CSS
 
 The animation overlay is intentionally low-framerate — the light/dark toggle causes a compositor-level freeze across all Wayland clients that cannot be eliminated, only obscured.
-This is a limitation with how shell reloading works on GNOME currently (essentially - hacks.) But I decided to turn it into a feature ;)
+This is a limitation with how shell and application CSS reloading works on GNOME currently (essentially - hacks.) But I decided to turn it into a feature ;)
 
 ### Wallpaper switch
 
@@ -181,7 +193,7 @@ Picking a wallpaper and pressing `Enter` runs only gowall + wallpaper set; no CS
 
 Place any base16/base24 YAML files in your configured `custom_schemes_dir`. They appear in the browser with a `[*]` tag and support everything the catalogue schemes do. Both the new format (with `palette:` key) and the legacy flat format are parsed.
 
-Tinty custom scheme note: if you encounter issues with `tinty apply` on custom slugs, see [tinted-nvim issue #18](https://github.com/tinted-theming/tinted-nvim/issues/18) for the `FocusGained` workaround.
+
 
 ---
 
@@ -205,10 +217,8 @@ As always, feature requests, PRs, issues, and bug reports welcome. If the scope 
 
 ## Roadmap
 
-- Custom scheme editor
 - Scheme favourites and tagging
 - GNOME Shell extension for wallpaper rotation with custom transitions, consuming gnomad's wallpaper cache directory directly
-- AdwSteam CSS support
 - Additional GNOME Tweaks surface (icon theme, fonts)
 
 ---
