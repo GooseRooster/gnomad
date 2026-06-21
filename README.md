@@ -96,6 +96,10 @@ See the [Tinty documentation](https://github.com/tinted-theming/tinty) for detai
 
 gnomad will warn on startup if User Themes is not detected or if Tinty/gowall are missing from `$PATH`.
 
+### 4. Final steps
+
+With the above configured - Log out and log back in. GNOME Shell CSS and GTK CSS will automatically reload when you change color schemes in gnomad from here on out.
+
 ---
 
 ## Config
