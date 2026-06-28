@@ -224,7 +224,7 @@ As always, feature requests, PRs, issues, and bug reports welcome. If the scope 
 
 ## Third Party Contributions
 - [Rewaita](https://github.com/SwordPuffin/Rewaita) — CSS templates (GPL-3.0)
-- [ChromaLeon](https://github.com/DerDakon/ChromaLeon) — GTK4 live CSS reload architecture (GPL-3.0)
+- [ChromaLeon](https://github.com/Fabito02/ChromaLeon) — GTK4 live CSS reload architecture (GPL-3.0)
 
   gnomad's GTK4 theming writes colour variables to a separate `gnomad-colors.css` file and has
   `gtk.css` import it, rather than writing directly to `gtk.css`. This `@import` pattern is how
@@ -234,7 +234,7 @@ As always, feature requests, PRs, issues, and bug reports welcome. If the scope 
 ## Special Thanks
 
 - [Rewaita](https://github.com/SwordPuffin/Rewaita) - please check it out. I was heavily inspired by the approach Rewaita takes to theming and the CSS templates were directly responsible for even making gnomad possible. Try it, star it!!!
-- [ChromaLeon](https://github.com/DerDakon/ChromaLeon) - the GTK4 live reload trick that makes running LibAdwaita apps pick up new colours instantly. Genuinely could not have cracked this without studying their code.
+- [ChromaLeon](https://github.com/Fabito02/ChromaLeon) - the GTK4 live reload trick that makes running LibAdwaita apps pick up new colours instantly. Genuinely could not have cracked this without studying their code.
 - [Tinted Theming](https://github.com/tinted-theming/home.git) - the incredible base* and tinted* colorscheme support and scheme repository.
 - [Gowall](https://github.com/tinted-theming/home.git) - Wallpaper color scheming. What's not to love?
 - [Ratatui](https://ratatui.rs) - Cookin
