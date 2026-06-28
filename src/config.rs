@@ -19,6 +19,8 @@ pub struct Config {
     pub wallpaper_cache_dir: PathBuf,
     #[serde(default = "default_true")]
     pub follow_user_scheme_type: bool,
+    #[serde(default = "default_true")]
+    pub wallpaper_enabled: bool,
 }
 
 fn default_theme_name() -> String {
@@ -87,6 +89,7 @@ impl Config {
             output_wallpaper_path: default_output_wallpaper_path(),
             wallpaper_cache_dir: default_wallpaper_cache_dir(),
             follow_user_scheme_type: true,
+            wallpaper_enabled: true,
         }
     }
 }

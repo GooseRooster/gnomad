@@ -39,6 +39,8 @@ async fn run_gowall(input: &Path, output: &Path) -> Result<()> {
             PALETTE_JSON_PATH,
             "--output",
             output.to_str().unwrap(),
+            "--preview",
+            "false",
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())

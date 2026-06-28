@@ -141,6 +141,7 @@ pub async fn batch_convert(
             "--dir", wallpaper_dir.to_str().unwrap_or_default(),
             "-t", crate::pipeline::gowall::PALETTE_JSON_PATH,
             "--output", slug_cache_dir.to_str().unwrap_or_default(),
+            "--preview", "false",
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())

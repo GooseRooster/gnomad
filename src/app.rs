@@ -67,8 +67,10 @@ impl App {
     }
 
     pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        self.load_wallpapers();
-        self.restore_wallpaper_state();
+        if self.config.wallpaper_enabled {
+            self.load_wallpapers();
+            self.restore_wallpaper_state();
+        }
 
         let mut event_stream = EventStream::new();
         // 120 ms tick — intentionally low FPS to be compositor-friendly during shell reload
@@ -278,7 +280,8 @@ impl App {
             Panel::Schemes => "Schemes",
             Panel::Wallpapers => "Wallpapers",
         };
-        let title = Paragraph::new(format!(" gnomad — {panel_name}  [Tab] Switch panel"))
+        let tab_hint = if self.config.wallpaper_enabled { "  [Tab] Switch panel" } else { "" };
+        let title = Paragraph::new(format!(" gnomad — {panel_name}{tab_hint}"))
             .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
         f.render_widget(title, chunks[0]);
 
@@ -300,7 +303,7 @@ impl App {
         }
 
         match self.state.active_panel {
-            Panel::Schemes => scheme_browser::render_hints(f, chunks[2]),
+            Panel::Schemes => scheme_browser::render_hints(f, chunks[2], self.config.wallpaper_enabled),
             Panel::Wallpapers => wallpaper_picker::render_hints(f, chunks[2]),
         }
 
@@ -361,8 +364,10 @@ impl App {
     async fn handle_normal(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::Tab | KeyCode::Char('l') | KeyCode::Char('h') => {
-                self.state.toggle_panel();
-                self.invalidate_preview();
+                if self.config.wallpaper_enabled {
+                    self.state.toggle_panel();
+                    self.invalidate_preview();
+                }
             }
 
             KeyCode::Down | KeyCode::Char('j') => {
@@ -401,10 +406,14 @@ impl App {
             }
 
             KeyCode::Char('c') if key.modifiers == KeyModifiers::NONE => {
-                self.trigger_batch_convert(false)?;
+                if self.config.wallpaper_enabled {
+                    self.trigger_batch_convert(false)?;
+                }
             }
             KeyCode::Char('C') => {
-                self.trigger_batch_convert(true)?;
+                if self.config.wallpaper_enabled {
+                    self.trigger_batch_convert(true)?;
+                }
             }
             KeyCode::Char('u') if key.modifiers == KeyModifiers::NONE => {
                 self.trigger_update_schemes()?;
@@ -496,7 +505,11 @@ impl App {
         self.need_terminal_clear = true;
         let old_scheme = self.state.active_scheme.clone();
         self.anim_state.start_animation(
-            animation::TaskKind::ApplyScheme,
+            if self.config.wallpaper_enabled {
+                animation::TaskKind::ApplyScheme
+            } else {
+                animation::TaskKind::ApplySchemeNoWallpaper
+            },
             old_scheme.as_ref(),
             Some(&scheme),
         );
@@ -524,6 +537,9 @@ impl App {
     }
 
     fn apply_selected_wallpaper(&mut self) -> Result<()> {
+        if !self.config.wallpaper_enabled {
+            return Ok(());
+        }
         let Some(wallpaper) = self.state.selected_wallpaper().cloned() else {
             return Ok(());
         };
@@ -557,6 +573,9 @@ impl App {
     }
 
     fn trigger_batch_convert(&mut self, force: bool) -> Result<()> {
+        if !self.config.wallpaper_enabled {
+            return Ok(());
+        }
         let scheme = match self.state.active_panel {
             Panel::Schemes => self.state.selected_scheme().cloned(),
             Panel::Wallpapers => self.state.active_scheme.clone(),

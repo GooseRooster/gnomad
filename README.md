@@ -5,7 +5,7 @@
 
 Your GNOME theming companion - right in the terminal. Built in Rust with [Ratatui](https://ratatui.rs), leveraging [gowall](https://github.com/Achno/gowall) and [tinty](https://github.com/tinted-theming/tinty).
 
-Browse and apply base16/base24 colour schemes across your entire GNOME desktop in one keypress. On scheme switch, gnomad converts your wallpaper to match the palette, delegates terminal and app theming to Tinty, writes custom GTK 3/4 and GNOME Shell CSS, and triggers a shell reload. A second panel lets you browse your wallpaper directory and apply any image against the active scheme.
+Browse and apply base16/base24 colour schemes across your entire GNOME desktop in one keypress. On scheme switch, gnomad converts your wallpaper to match the palette, delegates terminal and app theming to Tinty, writes custom GTK 3/4 and GNOME Shell CSS, and triggers a shell reload. A second panel lets you browse your wallpaper directory and apply any image against the active scheme. Wallpaper features are optional — set `wallpaper_enabled = false` in config to manage only styling and theming, with no gowall dependency.
 
 ---
 
@@ -27,10 +27,10 @@ https://youtu.be/VyY0kjDfrCM
 
 - **250+ schemes out of the box** — pulls the full [tinted-theming/schemes](https://github.com/tinted-theming/schemes) catalogue (base16 + base24) via git clone on first run
 - **Full GNOME integration** — GTK 3, GTK 4 (libadwaita), and GNOME Shell panel all theme together
-- **Wallpaper colour conversion** via gowall — converts your wallpaper to match the active palette on every scheme switch
+- **Wallpaper colour conversion** via gowall — converts your wallpaper to match the active palette on every scheme switch (optional, see Config)
 - **Terminal and app propagation** via Tinty — themes any app Tinty supports (kitty, alacritty, neovim, etc.) based on your Tinty config
 - **Smart wallpaper cache** — batch-convert an entire wallpaper directory for any scheme; subsequent switches to that scheme are instant (no reconversion)
-- **Image preview** — live wallpaper preview in the picker using Sixel or Kitty Graphics Protocol
+- **Image preview** — live wallpaper preview in the picker using Sixel or Kitty Graphics Protocol (wallpaper panel only)
 - **Colour swatches** — inline base16/base24 palette preview for every scheme in the browser
 - **Search** — fuzzy filter the scheme list as you type
 - **Custom schemes** — drop your own YAML files into a configured directory and they appear alongside the catalogue
@@ -41,11 +41,11 @@ https://youtu.be/VyY0kjDfrCM
 ## Requirements
 
 - GNOME 45+ on Wayland
-- `rustup` installed from your distribution's package manager 
-- `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation)
+- `rustup` installed from your distribution's package manager
 - `tinty` in `$PATH` — `cargo install tinty`
 - `git` in `$PATH`
-- A terminal with [Sixel](https://en.wikipedia.org/wiki/Sixel) or [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support for wallpaper preview (e.g. Kitty, foot, WezTerm, Ghostty)
+- `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation) *(optional — only required when `wallpaper_enabled = true`, which is the default)*
+- A terminal with [Sixel](https://en.wikipedia.org/wiki/Sixel) or [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support for wallpaper preview (e.g. Kitty, foot, WezTerm, Ghostty) *(optional — wallpaper panel only)*
 
 ---
 
@@ -125,6 +125,7 @@ default_scheme = "base16-gruvbox-dark-hard"               # optional
 output_wallpaper_path = "~/.local/share/gnomad/current-wallpaper.png"
 wallpaper_cache_dir = "~/.local/share/gnomad/wallpapers"
 follow_user_scheme_type = true  # filter schemes by GNOME dark/light preference
+wallpaper_enabled = true        # set to false to disable all wallpaper features
 ```
 
 | Key | Default | Description |
@@ -136,6 +137,7 @@ follow_user_scheme_type = true  # filter schemes by GNOME dark/light preference
 | `output_wallpaper_path` | `~/.local/share/gnomad/current-wallpaper.png` | Where the converted wallpaper is written |
 | `wallpaper_cache_dir` | `~/.local/share/gnomad/wallpapers` | Root for per-scheme wallpaper cache |
 | `follow_user_scheme_type` | `true` | Filter scheme list to match GNOME's prefer-dark/prefer-light setting |
+| `wallpaper_enabled` | `true` | When `false`, disables all wallpaper operations and the wallpaper panel; `gowall` is not required |
 
 The wallpaper directory can also be changed at runtime with `[d]` in the wallpaper panel.
 

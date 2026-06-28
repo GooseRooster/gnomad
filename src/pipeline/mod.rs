@@ -40,7 +40,9 @@ pub async fn apply_scheme(
     let gnome = gnome::GnomeInterface::new().await?;
 
     // Step 1: Convert wallpaper with gowall
-    let _ = status_tx.send("[ converting wallpaper... ]".to_string());
+    if config.wallpaper_enabled && source_wallpaper.is_some() {
+        let _ = status_tx.send("[ converting wallpaper... ]".to_string());
+    }
     let output_wall = source_wallpaper
         .map(|s| output_wallpaper_path(s, &config))
         .unwrap_or_else(|| config.output_wallpaper_path.clone());
@@ -115,6 +117,9 @@ pub async fn apply_wallpaper(
     config: &Config,
     status_tx: watch::Sender<String>,
 ) -> Result<PathBuf> {
+    if !config.wallpaper_enabled {
+        return Ok(output_wallpaper_path(wallpaper, config));
+    }
     let gnome = gnome::GnomeInterface::new().await?;
     let output = output_wallpaper_path(wallpaper, &config);
 

@@ -105,7 +105,7 @@ impl GnomeInterface {
     }
 
     async fn gsettings_set(&self, schema: &str, key: &str, value: &str) -> Result<()> {
-        let status = tokio::process::Command::new("gsettings")
+        let status = tokio::process::Command::new("/usr/bin/gsettings")
             .args(["set", schema, key, value])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -119,7 +119,7 @@ impl GnomeInterface {
     }
 
     async fn gsettings_get(&self, schema: &str, key: &str) -> Result<String> {
-        let output = tokio::process::Command::new("gsettings")
+        let output = tokio::process::Command::new("/usr/bin/gsettings")
             .args(["get", schema, key])
             .output()
             .await

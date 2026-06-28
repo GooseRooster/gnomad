@@ -86,13 +86,17 @@ async fn main() -> Result<()> {
 
     // Startup checks
     check_binary("git")?;
-    check_binary("gowall")?;
+    if config.wallpaper_enabled {
+        check_binary("gowall")?;
+    }
     check_binary("tinty")?;
 
     // Ensure data dirs exist
     let data_base = config::data_dir();
     std::fs::create_dir_all(&data_base)?;
-    std::fs::create_dir_all(&config.wallpaper_cache_dir)?;
+    if config.wallpaper_enabled {
+        std::fs::create_dir_all(&config.wallpaper_cache_dir)?;
+    }
 
     // Clone schemes repo if not present
     if !config.schemes_repo_dir.exists() {

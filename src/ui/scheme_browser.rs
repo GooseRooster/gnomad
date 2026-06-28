@@ -178,8 +178,12 @@ fn base24_colors<'a>(s: &'a Scheme) -> Vec<&'a str> {
     row
 }
 
-pub fn render_hints(f: &mut Frame, area: Rect) {
-    let hints = " [Enter] Apply  [c] Pre-convert wallpapers  [u] Update schemes  [/] Search  [Tab/h/l] Switch panel  [q] Quit";
+pub fn render_hints(f: &mut Frame, area: Rect, wallpaper_enabled: bool) {
+    let hints = if wallpaper_enabled {
+        " [Enter] Apply  [c] Pre-convert wallpapers  [u] Update schemes  [/] Search  [Tab/h/l] Switch panel  [q] Quit"
+    } else {
+        " [Enter] Apply  [u] Update schemes  [/] Search  [q] Quit"
+    };
     let para = Paragraph::new(hints).style(Style::default().fg(Color::DarkGray));
     f.render_widget(para, area);
 }

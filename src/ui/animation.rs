@@ -15,6 +15,8 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 // Step label tables per task type.
 const SCHEME_STEPS: &[&str] =
     &["convert wallpaper", "apply tinty", "write gtk css", "write shell css", "reload shell"];
+const SCHEME_STEPS_NO_WALLPAPER: &[&str] =
+    &["apply tinty", "write gtk css", "write shell css", "reload shell"];
 const WALLPAPER_STEPS: &[&str] = &["prepare wallpaper", "set wallpaper"];
 
 // ── Task kind ─────────────────────────────────────────────────────────────────
@@ -23,6 +25,7 @@ const WALLPAPER_STEPS: &[&str] = &["prepare wallpaper", "set wallpaper"];
 #[derive(Clone, Copy, PartialEq)]
 pub enum TaskKind {
     ApplyScheme,
+    ApplySchemeNoWallpaper,
     ApplyWallpaper,
     BatchConvert,
     UpdateSchemes,
@@ -137,7 +140,7 @@ impl AnimationState {
             .unwrap_or(Color::Rgb(14, 14, 20));
 
         // Only cross-fade when the scheme is actually changing.
-        let is_scheme_change = matches!(kind, TaskKind::ApplyScheme)
+        let is_scheme_change = matches!(kind, TaskKind::ApplyScheme | TaskKind::ApplySchemeNoWallpaper)
             && old_scheme.is_some()
             && old_scheme.map(|s| s.slug.as_str()) != new_scheme.map(|s| s.slug.as_str());
 
@@ -320,6 +323,7 @@ pub fn render(f: &mut Frame, anim: &mut AnimationState, status: &str) {
 fn task_steps(kind: TaskKind) -> &'static [&'static str] {
     match kind {
         TaskKind::ApplyScheme => SCHEME_STEPS,
+        TaskKind::ApplySchemeNoWallpaper => SCHEME_STEPS_NO_WALLPAPER,
         TaskKind::ApplyWallpaper => WALLPAPER_STEPS,
         TaskKind::BatchConvert | TaskKind::UpdateSchemes => &[],
     }
@@ -333,6 +337,13 @@ fn task_step(status: &str, kind: TaskKind) -> Option<usize> {
             else if status.contains("gtk css") { Some(2) }
             else if status.contains("shell css") { Some(3) }
             else if status.contains("reload") { Some(4) }
+            else { None }
+        }
+        TaskKind::ApplySchemeNoWallpaper => {
+            if status.contains("tinty") { Some(0) }
+            else if status.contains("gtk css") { Some(1) }
+            else if status.contains("shell css") { Some(2) }
+            else if status.contains("reload") { Some(3) }
             else { None }
         }
         TaskKind::ApplyWallpaper => {
