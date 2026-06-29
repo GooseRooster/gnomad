@@ -35,6 +35,7 @@ https://youtu.be/VyY0kjDfrCM
 - **Search** — fuzzy filter the scheme list as you type
 - **Custom schemes** — drop your own YAML files into a configured directory and they appear alongside the catalogue
 - **Dark/light preference** — optionally filter schemes to match your GNOME colour scheme setting (prefer-dark / prefer-light)
+- **Adwaita for Steam** — optional integration with [Adwaita-for-Steam](https://github.com/tkashkin/Adwaita-for-Steam); writes scheme colours to its custom CSS override on every scheme switch, keeping Steam's UI in sync with your desktop
 
 ---
 
@@ -107,7 +108,19 @@ See the [Tinty documentation](https://github.com/tinted-theming/tinty) for detai
 
 gnomad will warn on startup if User Themes is not detected or if Tinty/gowall are missing from `$PATH`.
 
-### 4. Final steps
+### 4. Adwaita for Steam (optional)
+
+If you have [Adwaita-for-Steam](https://github.com/tkashkin/Adwaita-for-Steam) installed with its custom CSS override enabled, gnomad can write scheme colours to it automatically. Enable it in config:
+
+```toml
+adwaita_steam_enabled = true
+```
+
+gnomad detects native and Flatpak Steam installs automatically by checking for the `adwaita/` directory in the Steam UI folder — no additional setup required. On each scheme switch it writes to both the active `custom.css` inside Steam's UI directory (takes effect on next Steam launch) and `~/.config/AdwSteamGtk/custom.css` (persists across reinstalls if you use the AdwSteamGtk GUI).
+
+> **Note:** Steam must be restarted to pick up the new colours. There is no live-reload path available outside of developer mode.
+
+### 5. Final steps
 
 With the above configured - Log out and log back in. GNOME Shell CSS and GTK CSS will automatically reload when you change color schemes in gnomad from here on out.
 
@@ -124,8 +137,9 @@ theme_name = "gnomad"
 default_scheme = "base16-gruvbox-dark-hard"               # optional
 output_wallpaper_path = "~/.local/share/gnomad/current-wallpaper.png"
 wallpaper_cache_dir = "~/.local/share/gnomad/wallpapers"
-follow_user_scheme_type = true  # filter schemes by GNOME dark/light preference
-wallpaper_enabled = true        # set to false to disable all wallpaper features
+follow_user_scheme_type = true   # filter schemes by GNOME dark/light preference
+wallpaper_enabled = true         # set to false to disable all wallpaper features
+adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integration
 ```
 
 | Key | Default | Description |
@@ -138,6 +152,7 @@ wallpaper_enabled = true        # set to false to disable all wallpaper features
 | `wallpaper_cache_dir` | `~/.local/share/gnomad/wallpapers` | Root for per-scheme wallpaper cache |
 | `follow_user_scheme_type` | `true` | Filter scheme list to match GNOME's prefer-dark/prefer-light setting |
 | `wallpaper_enabled` | `true` | When `false`, disables all wallpaper operations and the wallpaper panel; `gowall` is not required |
+| `adwaita_steam_enabled` | `false` | When `true`, writes scheme colours to Adwaita for Steam's custom CSS on each scheme switch; requires Adwaita-for-Steam to be installed |
 
 The wallpaper directory can also be changed at runtime with `[d]` in the wallpaper panel.
 
@@ -175,7 +190,8 @@ When you press `Enter` on a scheme, gnomad runs these steps sequentially with a 
 2. **Tinty** — `tinty apply <slug>` — propagates the scheme to configured apps and terminals
 3. **GTK CSS** — writes colour variables to `~/.config/gtk-3.0/gtk.css` (full template) and `~/.config/gtk-4.0/gnomad-colors.css` (@define-color entries imported by `gtk.css`); 
 4. **Shell CSS** — writes a fully-resolved `gnome-shell.css` to `~/.local/share/themes/gnomad/gnome-shell/`
-5. **GNOME reload** — sets the wallpaper URI via gsettings, then toggles `color-scheme` to force the shell to re-read the CSS
+5. **Adwaita for Steam** *(if `adwaita_steam_enabled = true`)* — writes a `:root { --adw-*-rgb: … }` block to Steam's `adwaita/custom/custom.css`; colours take effect on next Steam launch
+6. **GNOME reload** — sets the wallpaper URI via gsettings, then toggles `color-scheme` to force the shell to re-read the CSS
 
 The animation overlay is intentionally low-framerate — the light/dark toggle causes a compositor-level freeze across all Wayland clients that cannot be eliminated, only obscured.
 This is a limitation with how shell and application CSS reloading works on GNOME currently (essentially - hacks.) But I decided to turn it into a feature ;)
