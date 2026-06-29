@@ -21,6 +21,8 @@ pub struct Config {
     pub follow_user_scheme_type: bool,
     #[serde(default = "default_true")]
     pub wallpaper_enabled: bool,
+    #[serde(default)]
+    pub adwaita_steam_enabled: bool,
 }
 
 fn default_theme_name() -> String {
@@ -90,6 +92,7 @@ impl Config {
             wallpaper_cache_dir: default_wallpaper_cache_dir(),
             follow_user_scheme_type: true,
             wallpaper_enabled: true,
+            adwaita_steam_enabled: false,
         }
     }
 }

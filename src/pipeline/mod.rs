@@ -4,6 +4,7 @@ pub mod gtk_css;
 pub mod palette;
 pub mod shade;
 pub mod shell_css;
+pub mod steam_css;
 pub mod tinty;
 pub mod wallpaper_cache;
 
@@ -86,7 +87,17 @@ pub async fn apply_scheme(
     })?;
     shell_css::write_theme_index(&config.theme_name)?;
 
-    // Step 5: GNOME integration
+    // Step 5: Adwaita for Steam CSS
+    if config.adwaita_steam_enabled {
+        let _ = status_tx.send("[ writing steam css... ]".to_string());
+        debug!("writing adwaita-for-steam css");
+        steam_css::write_steam_css(scheme).map_err(|e| {
+            tracing::error!("steam css: {e:#}");
+            e
+        })?;
+    }
+
+    // Step 6: GNOME integration
     let _ = status_tx.send("[ reloading shell... ]".to_string());
     debug!("setting wallpaper: {}", output_wall.display());
     if source_wallpaper.is_some() {
