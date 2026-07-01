@@ -1,6 +1,6 @@
 [package]
 name = "gnomad"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 description = "A lightweight TUI for managing tinted color schemes in the GNOME shell"
 readme = "README.md"

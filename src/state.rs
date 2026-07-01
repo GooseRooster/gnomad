@@ -125,9 +125,10 @@ impl AppState {
                     // unaffected (remove then re-insert at 0 cancel each other out).
                     if self.selected_scheme_idx < pos {
                         self.selected_scheme_idx += 1;
-                    } else if self.selected_scheme_idx == pos {
-                        self.selected_scheme_idx = 0;
                     }
+                    // When cursor was on the applied scheme (== pos), leave it at pos.
+                    // The active scheme is now at index 0; cursor stays near where the
+                    // user was browsing rather than jumping to the top.
                 }
             }
         }
