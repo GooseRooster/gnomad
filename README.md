@@ -235,6 +235,8 @@ As always, feature requests, PRs, issues, and bug reports welcome. If the scope 
 ## Roadmap
 
 - Scheme favourites and tagging
+- Advanced filters
+- Shared libary and GTK/Libadwaita frontend
 - GNOME Shell extension for wallpaper rotation with custom transitions, consuming gnomad's wallpaper cache directory directly
 - Additional GNOME Tweaks surface (icon theme, fonts)
 
