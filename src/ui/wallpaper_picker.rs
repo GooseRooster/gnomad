@@ -164,7 +164,7 @@ fn same_filename(a: &Path, b: &Path) -> bool {
 }
 
 pub fn render_hints(f: &mut Frame, area: Rect) {
-    let hints = " [Enter] Apply  [c] Convert dir  [Shift+C] Force re-convert  [d] Change dir  [Tab/h/l] Switch panel  [q] Quit";
+    let hints = " [Enter] Apply  [c] Convert dir  [Shift+C] Force re-convert  [s] Create slideshow  [d] Change dir  [Tab/h/l] Switch panel  [q] Quit";
     let para = Paragraph::new(hints).style(Style::default().fg(Color::DarkGray));
     f.render_widget(para, area);
 }

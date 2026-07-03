@@ -11,17 +11,28 @@ pub enum SteamInstall {
 }
 
 /// Check for an installed Adwaita for Steam theme directory.
-/// Native Steam takes priority; Flatpak checked second.
+/// Flatpak is checked first using the canonical .local/share path to avoid
+/// false-positive native detection when only the adwaita dir was created by a
+/// prior gnomad write (not a real Steam installation).
 pub fn detect_adwaita_steam() -> Option<SteamInstall> {
     let home = dirs::home_dir()?;
-    if home.join(".steam/steam/steamui/adwaita").is_dir() {
-        return Some(SteamInstall::Native);
-    }
+    // Flatpak: use canonical path, not the .steam/steam symlink
     if home
-        .join(".var/app/com.valvesoftware.Steam/.steam/steam/steamui/adwaita")
+        .join(".var/app/com.valvesoftware.Steam/.local/share/Steam/steamui/adwaita")
         .is_dir()
     {
         return Some(SteamInstall::Flatpak);
+    }
+    // Native: prefer the canonical ~/.local/share/Steam location
+    if home.join(".local/share/Steam/steamui/adwaita").is_dir() {
+        return Some(SteamInstall::Native);
+    }
+    // Fallback native: .steam/steam path, but only if steam.sh exists to
+    // confirm this is a real installation and not a stray adwaita directory.
+    if home.join(".steam/steam/steamui/adwaita").is_dir()
+        && home.join(".steam/steam/steam.sh").exists()
+    {
+        return Some(SteamInstall::Native);
     }
     None
 }
@@ -33,9 +44,12 @@ pub fn detect_adwaita_steam() -> Option<SteamInstall> {
 fn custom_css_paths(install: &SteamInstall) -> Vec<PathBuf> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("~"));
     let steam_root = match install {
-        SteamInstall::Native => home.join(".steam/steam"),
         SteamInstall::Flatpak => {
-            home.join(".var/app/com.valvesoftware.Steam/.steam/steam")
+            home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam")
+        }
+        SteamInstall::Native => {
+            let canonical = home.join(".local/share/Steam");
+            if canonical.exists() { canonical } else { home.join(".steam/steam") }
         }
     };
     vec![

@@ -4,6 +4,7 @@ pub mod gtk_css;
 pub mod palette;
 pub mod shade;
 pub mod shell_css;
+pub mod slideshow;
 pub mod steam_css;
 pub mod tinty;
 pub mod wallpaper_cache;

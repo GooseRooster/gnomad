@@ -27,6 +27,7 @@ enum TaskResult {
     ApplyWallpaper { wallpaper: PathBuf, result: anyhow::Result<PathBuf> },
     BatchConvert { result: anyhow::Result<()> },
     UpdateSchemes { result: anyhow::Result<Vec<Scheme>> },
+    CreateSlideshow { result: anyhow::Result<PathBuf> },
 }
 
 pub struct App {
@@ -187,6 +188,12 @@ impl App {
                         self.state.set_schemes(schemes, self.config.follow_user_scheme_type);
                         self.state.last_error = None;
                     }
+                    Err(e) => self.state.last_error = Some(format!("{e:#}")),
+                }
+            }
+            TaskResult::CreateSlideshow { result } => {
+                match result {
+                    Ok(_) => self.state.last_error = None,
                     Err(e) => self.state.last_error = Some(format!("{e:#}")),
                 }
             }
@@ -415,6 +422,13 @@ impl App {
                     self.trigger_batch_convert(true)?;
                 }
             }
+            KeyCode::Char('s')
+                if key.modifiers == KeyModifiers::NONE
+                    && self.config.wallpaper_enabled
+                    && self.state.active_panel == Panel::Wallpapers =>
+            {
+                self.trigger_create_slideshow()?;
+            }
             KeyCode::Char('u') if key.modifiers == KeyModifiers::NONE => {
                 self.trigger_update_schemes()?;
             }
@@ -610,6 +624,46 @@ impl App {
             )
             .await;
             TaskResult::BatchConvert { result }
+        }));
+
+        Ok(())
+    }
+
+    fn trigger_create_slideshow(&mut self) -> Result<()> {
+        let scheme = match self.state.active_panel {
+            Panel::Schemes => self.state.selected_scheme().cloned(),
+            Panel::Wallpapers => self.state.active_scheme.clone(),
+        };
+
+        let Some(scheme) = scheme else {
+            self.state.last_error = Some("No active scheme for slideshow".to_string());
+            return Ok(());
+        };
+
+        self.state.mode = AppMode::Processing;
+        self.image_proto = None;
+        self.image_rx = None;
+        self.need_terminal_clear = true;
+        let current_scheme = self.state.active_scheme.clone();
+        self.anim_state.start_animation(
+            animation::TaskKind::CreateSlideshow,
+            current_scheme.as_ref(),
+            current_scheme.as_ref(),
+        );
+
+        let config = self.config.clone();
+        let status_tx = self.state.status_tx.clone();
+
+        self.processing_task = Some(tokio::task::spawn(async move {
+            let result = pipeline::slideshow::create_slideshow(
+                &config.wallpaper_dir,
+                &config.wallpaper_cache_dir,
+                &scheme.slug,
+                &scheme,
+                status_tx,
+            )
+            .await;
+            TaskResult::CreateSlideshow { result }
         }));
 
         Ok(())

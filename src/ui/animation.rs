@@ -18,6 +18,7 @@ const SCHEME_STEPS: &[&str] =
 const SCHEME_STEPS_NO_WALLPAPER: &[&str] =
     &["apply tinty", "write gtk css", "write shell css", "reload shell"];
 const WALLPAPER_STEPS: &[&str] = &["prepare wallpaper", "set wallpaper"];
+const SLIDESHOW_STEPS: &[&str] = &["convert wallpapers", "generate xml", "set wallpaper"];
 
 // ── Task kind ─────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ pub enum TaskKind {
     ApplyWallpaper,
     BatchConvert,
     UpdateSchemes,
+    CreateSlideshow,
 }
 
 // ── Effect kind ───────────────────────────────────────────────────────────────
@@ -325,6 +327,7 @@ fn task_steps(kind: TaskKind) -> &'static [&'static str] {
         TaskKind::ApplyScheme => SCHEME_STEPS,
         TaskKind::ApplySchemeNoWallpaper => SCHEME_STEPS_NO_WALLPAPER,
         TaskKind::ApplyWallpaper => WALLPAPER_STEPS,
+        TaskKind::CreateSlideshow => SLIDESHOW_STEPS,
         TaskKind::BatchConvert | TaskKind::UpdateSchemes => &[],
     }
 }
@@ -355,6 +358,12 @@ fn task_step(status: &str, kind: TaskKind) -> Option<usize> {
             } else {
                 None
             }
+        }
+        TaskKind::CreateSlideshow => {
+            if status.contains("converting") || status.contains("cached") { Some(0) }
+            else if status.contains("generating slideshow") { Some(1) }
+            else if status.contains("setting slideshow") { Some(2) }
+            else { None }
         }
         TaskKind::BatchConvert | TaskKind::UpdateSchemes => None,
     }

@@ -51,14 +51,21 @@ https://youtu.be/VyY0kjDfrCM
 ---
 
 ## Installation
-Install from cargo
+
+**Homebrew (Linux)**
+```bash
+brew tap GooseRooster/gnomad
+brew install gnomad
+```
+
+**Cargo**
 ```bash
 cargo install gnomad
 ```
 
-Building manually from source
+**From source**
 ```bash
-git clone https://github.com/GooseRooser/gnomad
+git clone https://github.com/GooseRooster/gnomad
 cd gnomad
 cargo install --path .
 ```
@@ -175,6 +182,7 @@ The wallpaper directory can also be changed at runtime with `[d]` in the wallpap
 | `u` | Update schemes from remote (Schemes panel) |
 | `c` | Batch-convert wallpaper directory for selected/active scheme |
 | `Shift+C` | Force re-convert (bypass cache) |
+| `s` | Create GNOME slideshow from wallpaper directory (Wallpapers panel) |
 | `d` | Change wallpaper directory (Wallpapers panel) |
 | `q` | Quit |
 
