@@ -122,6 +122,11 @@ git add Cargo.toml Cargo.lock
 git commit -m "chore: bump version to $VERSION"
 git push
 
+# ── Publish to crates.io ─────────────────────────────────────────────────────
+
+echo "==> Publishing to crates.io"
+cargo publish
+
 # ── Commit and push tap repo ─────────────────────────────────────────────────
 
 echo "==> Committing formula update in homebrew-gnomad tap"
