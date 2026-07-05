@@ -147,6 +147,8 @@ wallpaper_cache_dir = "~/.local/share/gnomad/wallpapers"
 follow_user_scheme_type = true   # filter schemes by GNOME dark/light preference
 wallpaper_enabled = true         # set to false to disable all wallpaper features
 adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integration
+slideshow_static_secs = 3600     # seconds each wallpaper is shown before crossfading
+slideshow_transition_secs = 1800 # seconds each crossfade lasts
 ```
 
 | Key | Default | Description |
@@ -160,6 +162,8 @@ adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integ
 | `follow_user_scheme_type` | `true` | Filter scheme list to match GNOME's prefer-dark/prefer-light setting |
 | `wallpaper_enabled` | `true` | When `false`, disables all wallpaper operations and the wallpaper panel; `gowall` is not required |
 | `adwaita_steam_enabled` | `false` | When `true`, writes scheme colours to Adwaita for Steam's custom CSS on each scheme switch; requires Adwaita-for-Steam to be installed |
+| `slideshow_static_secs` | `3600` | How long each wallpaper is displayed (in seconds) before the crossfade begins |
+| `slideshow_transition_secs` | `1800` | Duration of each crossfade transition in seconds. GNOME Shell's compositor updates wallpaper opacity at most once per second, so transitions shorter than ~60 s will appear choppy. Long values (≥1800 s) make each opacity step imperceptible. |
 
 The wallpaper directory can also be changed at runtime with `[d]` in the wallpaper panel.
 
@@ -210,7 +214,7 @@ Picking a wallpaper and pressing `Enter` runs only gowall + wallpaper set; no CS
 
 ### Batch convert
 
-`[c]` converts every image in your wallpaper directory against a scheme and stores the results under `~/.local/share/gnomad/wallpapers/<scheme-slug>/`. This is a pre-warming primitive: subsequent wallpaper switches under that scheme never call gowall. A `manifest.json` in each directory tracks source mtimes for cache invalidation.
+`[c]` converts every image in your wallpaper directory against a scheme and stores the results under `~/.local/share/gnomad/wallpapers/<scheme-slug>-<dir-hash>/`. The cache is keyed by both scheme and wallpaper directory, so changing `wallpaper_dir` in config always produces a separate cache — no cross-contamination between directories with identically-named files. Subsequent wallpaper switches under the same (scheme + directory) combination never call gowall. A `manifest.json` in each cache directory tracks source mtimes for cache invalidation.
 
 ---
 
