@@ -71,6 +71,7 @@ impl GnomeInterface {
         let ext = "user-theme@gnome-shell-extensions.gcampax.github.com";
         let _ = tokio::process::Command::new("gnome-extensions")
             .args(["disable", ext])
+            .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -78,6 +79,7 @@ impl GnomeInterface {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let _ = tokio::process::Command::new("gnome-extensions")
             .args(["enable", ext])
+            .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -94,6 +96,7 @@ impl GnomeInterface {
     pub async fn is_user_themes_enabled(&self) -> bool {
         let result = tokio::process::Command::new("gnome-extensions")
             .args(["list", "--enabled"])
+            .env_remove("LD_LIBRARY_PATH")
             .output()
             .await;
         match result {
@@ -107,6 +110,7 @@ impl GnomeInterface {
     async fn gsettings_set(&self, schema: &str, key: &str, value: &str) -> Result<()> {
         let status = tokio::process::Command::new("/usr/bin/gsettings")
             .args(["set", schema, key, value])
+            .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -121,6 +125,7 @@ impl GnomeInterface {
     async fn gsettings_get(&self, schema: &str, key: &str) -> Result<String> {
         let output = tokio::process::Command::new("/usr/bin/gsettings")
             .args(["get", schema, key])
+            .env_remove("LD_LIBRARY_PATH")
             .output()
             .await
             .with_context(|| format!("gsettings get {schema} {key}"))?;
