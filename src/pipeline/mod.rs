@@ -50,7 +50,7 @@ pub async fn apply_scheme(
         .unwrap_or_else(|| config.output_wallpaper_path.clone());
 
     if let Some(source) = source_wallpaper {
-        let cache_dir = config.wallpaper_cache_dir.join(&scheme.slug);
+        let cache_dir = wallpaper_cache::scheme_cache_dir(&config.wallpaper_cache_dir, &scheme.slug, &config.wallpaper_dir);
         debug!("wallpaper source: {}", source.display());
         debug!("wallpaper cache dir: {}", cache_dir.display());
         debug!("output wall: {}", output_wall.display());
@@ -137,7 +137,7 @@ pub async fn apply_wallpaper(
 
     let skip_convert = active_scheme
         .map(|s| {
-            let cache_dir = config.wallpaper_cache_dir.join(&s.slug);
+            let cache_dir = wallpaper_cache::scheme_cache_dir(&config.wallpaper_cache_dir, &s.slug, &config.wallpaper_dir);
             wallpaper_cache::is_cached(wallpaper, &cache_dir)
         })
         .unwrap_or(false);
@@ -145,7 +145,7 @@ pub async fn apply_wallpaper(
     if skip_convert {
         let _ = status_tx.send("[ applying wallpaper (cached)... ]".to_string());
         if let Some(s) = active_scheme {
-            let cache_dir = config.wallpaper_cache_dir.join(&s.slug);
+            let cache_dir = wallpaper_cache::scheme_cache_dir(&config.wallpaper_cache_dir, &s.slug, &config.wallpaper_dir);
             if let Some(cached) = wallpaper_cache::cached_path(wallpaper, &cache_dir) {
                 tokio::fs::copy(&cached, &output).await?;
             }

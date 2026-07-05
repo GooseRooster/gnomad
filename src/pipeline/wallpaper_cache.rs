@@ -35,6 +35,23 @@ impl Manifest {
     }
 }
 
+/// Compute the per-(scheme, wallpaper-dir) cache subdirectory.
+/// Keying by both slug and wallpaper dir prevents collisions when the user
+/// switches wallpaper_dir in config (different dirs can have identically-named files).
+pub fn scheme_cache_dir(cache_root: &Path, slug: &str, wallpaper_dir: &Path) -> PathBuf {
+    cache_root.join(format!("{slug}-{}", dir_hash(wallpaper_dir)))
+}
+
+/// Stable FNV-1a 64-bit hash of a path string. No extra dependencies.
+pub(crate) fn dir_hash(path: &Path) -> String {
+    let mut h: u64 = 14695981039346656037;
+    for b in path.to_string_lossy().bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    format!("{h:016x}")
+}
+
 /// Check if a specific wallpaper has already been converted for this scheme.
 pub fn is_cached(wallpaper_path: &Path, cache_dir: &Path) -> bool {
     let Some(manifest) = Manifest::load(cache_dir) else {
@@ -78,7 +95,7 @@ pub async fn batch_convert(
     force: bool,
     status_tx: tokio::sync::watch::Sender<String>,
 ) -> Result<()> {
-    let slug_cache_dir = cache_dir.join(&scheme.slug);
+    let slug_cache_dir = scheme_cache_dir(cache_dir, &scheme.slug, wallpaper_dir);
     tokio::fs::create_dir_all(&slug_cache_dir).await?;
 
     write_palette_json(scheme)?;

@@ -23,6 +23,16 @@ pub struct Config {
     pub wallpaper_enabled: bool,
     #[serde(default)]
     pub adwaita_steam_enabled: bool,
+    /// How long each wallpaper is displayed before the crossfade begins (seconds).
+    #[serde(default = "default_slideshow_static_secs")]
+    pub slideshow_static_secs: u64,
+    /// Duration of each crossfade transition (seconds).
+    /// GNOME Shell's compositor updates wallpaper opacity at most once per second
+    /// (ANIMATION_MIN_WAKEUP_INTERVAL = 1.0 in background.js), incrementing by
+    /// ~1.6% per tick. Long transitions (≥1800 s) make each tick imperceptible;
+    /// short transitions (≤60 s) produce visible 1fps stepping.
+    #[serde(default = "default_slideshow_transition_secs")]
+    pub slideshow_transition_secs: u64,
 }
 
 fn default_theme_name() -> String {
@@ -43,6 +53,14 @@ fn default_wallpaper_cache_dir() -> PathBuf {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_slideshow_static_secs() -> u64 {
+    3600
+}
+
+fn default_slideshow_transition_secs() -> u64 {
+    1800
 }
 
 pub fn data_dir() -> PathBuf {
@@ -93,6 +111,8 @@ impl Config {
             follow_user_scheme_type: true,
             wallpaper_enabled: true,
             adwaita_steam_enabled: false,
+            slideshow_static_secs: default_slideshow_static_secs(),
+            slideshow_transition_secs: default_slideshow_transition_secs(),
         }
     }
 }

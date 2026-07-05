@@ -660,6 +660,8 @@ impl App {
                 &config.wallpaper_cache_dir,
                 &scheme.slug,
                 &scheme,
+                config.slideshow_static_secs,
+                config.slideshow_transition_secs,
                 status_tx,
             )
             .await;
