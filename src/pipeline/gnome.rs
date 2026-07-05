@@ -2,6 +2,11 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Stdio;
 
+// These vars are injected by AppImage runtimes (e.g. ghostty's sharun bundler) and
+// redirect GIO away from dconf, causing gsettings writes to land in a keyfile instead
+// of the session dconf database.
+const GSETTINGS_POISON_VARS: &[&str] = &["GSETTINGS_BACKEND", "GIO_MODULE_DIR"];
+
 pub struct GnomeInterface;
 
 impl GnomeInterface {
@@ -108,30 +113,68 @@ impl GnomeInterface {
     }
 
     async fn gsettings_set(&self, schema: &str, key: &str, value: &str) -> Result<()> {
-        let status = tokio::process::Command::new("/usr/bin/gsettings")
-            .args(["set", schema, key, value])
+        tracing::debug!("gsettings set {schema} {key} {value}");
+        self.warn_poison_vars();
+        let mut cmd = tokio::process::Command::new("/usr/bin/gsettings");
+        cmd.args(["set", schema, key, value])
             .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
+            .stderr(Stdio::piped());
+        for var in GSETTINGS_POISON_VARS {
+            cmd.env_remove(var);
+        }
+        let output = cmd
+            .output()
             .await
             .with_context(|| format!("gsettings set {schema} {key}"))?;
-        if !status.success() {
-            anyhow::bail!("gsettings set {schema} {key} failed");
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::error!(
+                "gsettings set {schema} {key} failed (exit {:?}): {}",
+                output.status.code(),
+                stderr.trim()
+            );
+            anyhow::bail!("gsettings set {schema} {key} failed: {}", stderr.trim());
         }
         Ok(())
     }
 
     async fn gsettings_get(&self, schema: &str, key: &str) -> Result<String> {
-        let output = tokio::process::Command::new("/usr/bin/gsettings")
-            .args(["get", schema, key])
+        tracing::debug!("gsettings get {schema} {key}");
+        self.warn_poison_vars();
+        let mut cmd = tokio::process::Command::new("/usr/bin/gsettings");
+        cmd.args(["get", schema, key])
             .env_remove("LD_LIBRARY_PATH")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for var in GSETTINGS_POISON_VARS {
+            cmd.env_remove(var);
+        }
+        let output = cmd
             .output()
             .await
             .with_context(|| format!("gsettings get {schema} {key}"))?;
         if !output.status.success() {
-            anyhow::bail!("gsettings get {schema} {key} failed");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::error!(
+                "gsettings get {schema} {key} failed (exit {:?}): {}",
+                output.status.code(),
+                stderr.trim()
+            );
+            anyhow::bail!("gsettings get {schema} {key} failed: {}", stderr.trim());
         }
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        tracing::debug!("gsettings get {schema} {key} => {result}");
+        Ok(result)
+    }
+
+    fn warn_poison_vars(&self) {
+        for var in GSETTINGS_POISON_VARS {
+            if let Ok(val) = std::env::var(var) {
+                tracing::warn!(
+                    "AppImage env leak: {var}={val:?} — stripping before gsettings call"
+                );
+            }
+        }
     }
 }
