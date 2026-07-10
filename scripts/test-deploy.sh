@@ -40,7 +40,7 @@ if [[ "${1:-}" == "--revert" ]]; then
   echo "==> Installing latest gnomad from $TAP"
   brew install "$TAP/gnomad"
   echo
-  echo "Done. $(gnomad --version)"
+  echo "Done. Installed at: $(command -v gnomad)"
   exit 0
 fi
 
@@ -95,7 +95,7 @@ class Gnomad < Formula
   end
 
   test do
-    system "#{bin}/gnomad", "--version"
+    system "#{bin}/gnomad", "--help"
   end
 end
 EOF
@@ -104,5 +104,6 @@ echo "==> Installing gnomad from local checkout (branch: $BRANCH, commit: $COMMI
 brew install --build-from-source "$DEV_TAP/gnomad"
 
 echo
-echo "Done. $(gnomad --version)"
-echo "This is a local dev build — run '$(basename "$0") --revert' to go back to the released version."
+echo "Done. Installed at: $(command -v gnomad)"
+echo "This is a local dev build (branch: $BRANCH, commit: $COMMIT)."
+echo "Run '$(basename "$0") --revert' to go back to the released version."
