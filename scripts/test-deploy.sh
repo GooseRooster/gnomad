@@ -60,15 +60,6 @@ BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
 COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 LOCAL_VERSION="$(grep -m1 '^version = ' "$REPO_ROOT/Cargo.toml" | sed -E 's/version = "(.*)"/\1/')-local"
 
-# Homebrew's build sandbox uses a restricted PATH that doesn't include a
-# rustup-managed cargo (and cargo in turn shells out to `rustc` by bare
-# name), so we bake in the absolute path to whatever cargo is already on
-# PATH here and prepend its directory to the sandbox PATH, rather than
-# pulling in Homebrew's own "rust" formula as a build dependency (slow,
-# and defeats the point of a fast local dev loop).
-CARGO_BIN="$(command -v cargo)"
-CARGO_BIN_DIR="$(dirname "$CARGO_BIN")"
-
 uninstall_if_present
 
 # Homebrew (recent versions) refuses to install a bare formula file that
@@ -97,9 +88,10 @@ class Gnomad < Formula
   url "file://$REPO_ROOT", using: :git, branch: "$BRANCH"
   version "$LOCAL_VERSION"
 
+  depends_on "rust" => :build
+
   def install
-    ENV.prepend_path "PATH", "$CARGO_BIN_DIR"
-    system "$CARGO_BIN", "install", "--locked", "--root", prefix, "--path", "."
+    system "cargo", "install", "--locked", "--root", prefix, "--path", "."
   end
 
   test do
