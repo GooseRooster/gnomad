@@ -17,6 +17,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAP="GooseRooster/gnomad"
+DEV_TAP="gnomad-dev/local"
 
 for cmd in brew git; do
   if ! command -v "$cmd" &>/dev/null; then
@@ -61,9 +62,23 @@ LOCAL_VERSION="$(grep -m1 '^version = ' "$REPO_ROOT/Cargo.toml" | sed -E 's/vers
 
 uninstall_if_present
 
-FORMULA_DIR="$(mktemp -d)"
-trap 'rm -rf "$FORMULA_DIR"' EXIT
-FORMULA="$FORMULA_DIR/gnomad.rb"
+# Homebrew (recent versions) refuses to install a bare formula file that
+# isn't part of a tap, so we maintain a tiny local tap and drop the
+# formula into it directly rather than re-tapping on every run.
+DEV_TAP_DIR="$(brew --repository "$DEV_TAP")"
+if [[ ! -d "$DEV_TAP_DIR" ]]; then
+  echo "==> Creating local dev tap ($DEV_TAP)"
+  SCAFFOLD="$(mktemp -d)"
+  mkdir -p "$SCAFFOLD/Formula"
+  git -C "$SCAFFOLD" init -q
+  git -C "$SCAFFOLD" add -A
+  git -C "$SCAFFOLD" -c user.name="gnomad-dev" -c user.email="dev@localhost" commit -q -m "init" --allow-empty
+  brew tap "$DEV_TAP" "file://$SCAFFOLD"
+  rm -rf "$SCAFFOLD"
+fi
+
+FORMULA="$DEV_TAP_DIR/Formula/gnomad.rb"
+mkdir -p "$(dirname "$FORMULA")"
 
 cat > "$FORMULA" <<EOF
 class Gnomad < Formula
@@ -84,7 +99,7 @@ end
 EOF
 
 echo "==> Installing gnomad from local checkout (branch: $BRANCH, commit: $COMMIT)"
-brew install --build-from-source "$FORMULA"
+brew install --build-from-source "$DEV_TAP/gnomad"
 
 echo
 echo "Done. $(gnomad --version)"
