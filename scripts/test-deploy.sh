@@ -60,6 +60,13 @@ BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
 COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 LOCAL_VERSION="$(grep -m1 '^version = ' "$REPO_ROOT/Cargo.toml" | sed -E 's/version = "(.*)"/\1/')-local"
 
+# Homebrew's build sandbox uses a restricted PATH that doesn't include a
+# rustup-managed cargo, so we bake in the absolute path to whatever cargo
+# is already on PATH here rather than pulling in Homebrew's own "rust"
+# formula as a build dependency (slow, and defeats the point of a fast
+# local dev loop).
+CARGO_BIN="$(command -v cargo)"
+
 uninstall_if_present
 
 # Homebrew (recent versions) refuses to install a bare formula file that
@@ -89,7 +96,7 @@ class Gnomad < Formula
   version "$LOCAL_VERSION"
 
   def install
-    system "cargo", "install", "--locked", "--root", prefix, "--path", "."
+    system "$CARGO_BIN", "install", "--locked", "--root", prefix, "--path", "."
   end
 
   test do
