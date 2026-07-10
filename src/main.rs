@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
-#[command(name = "gnomad", about = "GNOME colour scheme and wallpaper manager")]
+#[command(name = "gnomad", about = "GNOME colour scheme and wallpaper manager", version)]
 struct Cli {
     #[arg(long, help = "Fetch/update schemes and exit")]
     update_schemes: bool,

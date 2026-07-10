@@ -1,0 +1,128 @@
+name: Release
+
+# Triggers whenever a push to main changes Cargo.toml. The `check-version` job
+# then confirms the `version = "..."` line actually changed (vs. some other
+# Cargo.toml edit landing on main) before the release job runs anything.
+#
+# To cut a release: bump `version` in Cargo.toml, commit with a message
+# describing the release (used verbatim as the GitHub release notes), and
+# push to main.
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.toml]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: check
+        run: |
+          NEW="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            OLD="$(git show HEAD~1:Cargo.toml | grep -m1 '^version = ' | sed -E 's/version = "(.*)"/\1/' || true)"
+          else
+            OLD=""
+          fi
+          echo "old version: $OLD"
+          echo "new version: $NEW"
+          if [[ "$NEW" != "$OLD" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.check-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross
+        run: cargo install cross --locked
+
+      - name: Extract release note from commit message
+        id: note
+        run: |
+          {
+            echo "note<<GNOMAD_RELEASE_NOTE_EOF"
+            git log -1 --pretty=%B
+            echo "GNOMAD_RELEASE_NOTE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build x86_64
+        run: cargo build --release
+
+      - name: Package x86_64
+        run: (cd target/release && tar czf "$GITHUB_WORKSPACE/gnomad-x86_64-unknown-linux-gnu.tar.gz" gnomad)
+
+      - name: Cross-build aarch64
+        run: cross build --release --target aarch64-unknown-linux-gnu
+
+      - name: Package aarch64
+        run: (cd target/aarch64-unknown-linux-gnu/release && tar czf "$GITHUB_WORKSPACE/gnomad-aarch64-unknown-linux-gnu.tar.gz" gnomad)
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v$VERSION" \
+            --repo GooseRooster/gnomad \
+            --title "v$VERSION" \
+            --notes "${{ steps.note.outputs.note }}" \
+            gnomad-x86_64-unknown-linux-gnu.tar.gz \
+            gnomad-aarch64-unknown-linux-gnu.tar.gz
+
+      - name: Compute checksums
+        id: sha
+        run: |
+          echo "x86=$(sha256sum gnomad-x86_64-unknown-linux-gnu.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "arm=$(sha256sum gnomad-aarch64-unknown-linux-gnu.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish
+
+      - name: Update homebrew tap
+        env:
+          X86_SHA: ${{ steps.sha.outputs.x86 }}
+          ARM_SHA: ${{ steps.sha.outputs.arm }}
+          TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${TAP_REPO_TOKEN}@github.com/GooseRooster/homebrew-gnomad.git" tap
+          FORMULA="tap/Formula/gnomad.rb"
+
+          sed -i "s/version \".*\"/version \"$VERSION\"/" "$FORMULA"
+          sed -i \
+            "s|releases/download/v[^/]*/gnomad-x86_64|releases/download/v$VERSION/gnomad-x86_64|" \
+            "$FORMULA"
+          sed -i \
+            "s|releases/download/v[^/]*/gnomad-aarch64|releases/download/v$VERSION/gnomad-aarch64|" \
+            "$FORMULA"
+          sed -i "/gnomad-x86_64-unknown-linux-gnu.tar.gz\"/{n;s/sha256 \".*\"/sha256 \"$X86_SHA\"/}" "$FORMULA"
+          sed -i "/gnomad-aarch64-unknown-linux-gnu.tar.gz\"/{n;s/sha256 \".*\"/sha256 \"$ARM_SHA\"/}" "$FORMULA"
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/gnomad.rb
+          git commit -m "gnomad $VERSION"
+          git push

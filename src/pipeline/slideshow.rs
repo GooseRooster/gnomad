@@ -4,6 +4,7 @@ use crate::config::data_dir;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_slideshow(
     wallpaper_dir: &Path,
     cache_dir: &Path,
@@ -11,9 +12,10 @@ pub async fn create_slideshow(
     scheme: &Scheme,
     static_secs: u64,
     transition_secs: u64,
+    hook_cmd: Option<String>,
     status_tx: tokio::sync::watch::Sender<String>,
 ) -> Result<PathBuf> {
-    wallpaper_cache::batch_convert(scheme, wallpaper_dir, cache_dir, false, status_tx.clone())
+    wallpaper_cache::batch_convert(scheme, wallpaper_dir, cache_dir, false, hook_cmd, status_tx.clone())
         .await?;
 
     let _ = status_tx.send("[ generating slideshow xml... ]".to_string());

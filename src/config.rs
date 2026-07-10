@@ -33,6 +33,8 @@ pub struct Config {
     /// short transitions (≤60 s) produce visible 1fps stepping.
     #[serde(default = "default_slideshow_transition_secs")]
     pub slideshow_transition_secs: u64,
+    #[serde(default)]
+    pub hooks: HooksConfig,
 }
 
 fn default_theme_name() -> String {
@@ -53,6 +55,16 @@ fn default_wallpaper_cache_dir() -> PathBuf {
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HooksConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_scheme_apply: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_wallpaper_apply: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_wallpaper_batch_convert: Option<String>,
 }
 
 fn default_slideshow_static_secs() -> u64 {
@@ -113,6 +125,7 @@ impl Config {
             adwaita_steam_enabled: false,
             slideshow_static_secs: default_slideshow_static_secs(),
             slideshow_transition_secs: default_slideshow_transition_secs(),
+            hooks: HooksConfig::default(),
         }
     }
 }
