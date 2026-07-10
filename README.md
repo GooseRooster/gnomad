@@ -113,6 +113,8 @@ tinty sync
 
 See the [Tinty documentation](https://github.com/tinted-theming/tinty) for details.
 
+For **custom schemes** (from `custom_schemes_dir`), gnomad automatically writes a copy into tinty's own custom-schemes directory (`~/.local/share/tinted-theming/tinty/custom-schemes/<system>/<slug>.yaml`) immediately before every `tinty apply` call — no manual registration or `tinty sync` needed. This file is regenerated on every apply, so edits to your source YAML in `custom_schemes_dir` take effect on the next scheme switch.
+
 gnomad will warn on startup if User Themes is not detected or if Tinty/gowall are missing from `$PATH`.
 
 ### 4. Adwaita for Steam (optional)
@@ -149,6 +151,11 @@ wallpaper_enabled = true         # set to false to disable all wallpaper feature
 adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integration
 slideshow_static_secs = 3600     # seconds each wallpaper is shown before crossfading
 slideshow_transition_secs = 1800 # seconds each crossfade lasts
+
+[hooks]
+# on_scheme_apply = "..."
+# on_wallpaper_apply = "..."
+# on_wallpaper_batch_convert = "..."
 ```
 
 | Key | Default | Description |
@@ -166,6 +173,27 @@ slideshow_transition_secs = 1800 # seconds each crossfade lasts
 | `slideshow_transition_secs` | `1800` | Duration of each crossfade transition in seconds. GNOME Shell's compositor updates wallpaper opacity at most once per second, so transitions shorter than ~60 s will appear choppy. Long values (≥1800 s) make each opacity step imperceptible. |
 
 The wallpaper directory can also be changed at runtime with `[d]` in the wallpaper panel.
+
+---
+
+## Hooks
+
+gnomad can run arbitrary shell commands after key events, with event-specific `GNOMAD_*` environment variables injected for the hook to reference. Hooks run via `sh -c "<command>"` with a 30s timeout, and never block or fail the underlying gnomad operation — failures are logged to `~/.local/share/gnomad/gnomad.log` (run with `-v`) but otherwise silent.
+
+Configure them under a `[hooks]` table in `config.toml`:
+
+```toml
+[hooks]
+on_wallpaper_batch_convert = "/usr/bin/gsettings set org.gnome.shell.extensions.wallpaper-slideshow.picture-uri-list-source-directory \"file://$GNOMAD_CACHE_DIR\""
+```
+
+> Use full paths like `/usr/bin/gsettings` rather than bare `gsettings` — avoids PATH issues with tools like Homebrew shadowing system binaries, and mirrors gnomad's own internal convention (see `gsettings_set`/`gsettings_get` in `src/pipeline/gnome.rs`).
+
+| Key | Fires | Env vars available |
+|---|---|---|
+| `on_scheme_apply` | After a full scheme switch completes successfully | `GNOMAD_SCHEME_SLUG`, `GNOMAD_SCHEME_NAME`, `GNOMAD_SCHEME_SYSTEM` (`base16`/`base24`), `GNOMAD_SCHEME_VARIANT` (empty if unset), `GNOMAD_WALLPAPER_PATH` (empty if wallpapers disabled) |
+| `on_wallpaper_apply` | After a standalone wallpaper switch (no scheme change) | `GNOMAD_WALLPAPER_PATH`, `GNOMAD_SCHEME_SLUG` (empty if no active scheme) |
+| `on_wallpaper_batch_convert` | After `[c]`/`[Shift+C]` batch-converts a wallpaper directory, and after `[s]` creates a slideshow (which batch-converts internally) | `GNOMAD_SCHEME_SLUG`, `GNOMAD_CACHE_DIR` (the per-scheme cache directory, now populated), `GNOMAD_WALLPAPER_COUNT` |
 
 ---
 
@@ -221,6 +249,8 @@ Picking a wallpaper and pressing `Enter` runs only gowall + wallpaper set; no CS
 ## Custom Schemes
 
 Place any base16/base24 YAML files in your configured `custom_schemes_dir`. They appear in the browser with a `[*]` tag and support everything the catalogue schemes do. Both the new format (with `palette:` key) and the legacy flat format are parsed.
+
+Under the hood, gnomad mirrors each custom scheme into tinty's `custom-schemes/<system>/` directory before applying, so Tinty-themed apps (kitty, neovim, etc.) pick up custom schemes exactly like catalogue ones.
 
 
 

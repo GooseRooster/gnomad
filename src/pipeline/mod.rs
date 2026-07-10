@@ -1,6 +1,7 @@
 pub mod gnome;
 pub mod gowall;
 pub mod gtk_css;
+pub mod hooks;
 pub mod palette;
 pub mod shade;
 pub mod shell_css;
@@ -65,6 +66,12 @@ pub async fn apply_scheme(
         }
     }
 
+    // Sync custom scheme into tinty's own custom-schemes dir so `tinty apply`
+    // can find it — tinty has no visibility into gnomad's custom_schemes_dir.
+    if scheme.is_custom {
+        tinty::sync_custom_scheme(scheme).await?;
+    }
+
     // Step 2: Tinty
     let _ = status_tx.send("[ applying tinty scheme... ]".to_string());
     let scheme_arg = format!("{}-{}", &scheme.system.tag(true), scheme.slug);
@@ -118,6 +125,20 @@ pub async fn apply_scheme(
     // Reload GNOME Shell CSS via user-theme extension cycle (same mechanism as Rewaita)
     debug!("reloading shell theme extension");
     gnome.reload_shell_theme().await;
+
+    let envs = [
+        ("GNOMAD_SCHEME_SLUG", scheme.slug.clone()),
+        ("GNOMAD_SCHEME_NAME", scheme.name.clone()),
+        ("GNOMAD_SCHEME_SYSTEM", scheme.system.tag(true).to_string()),
+        ("GNOMAD_SCHEME_VARIANT", scheme.variant.clone().unwrap_or_default()),
+        ("GNOMAD_WALLPAPER_PATH", if source_wallpaper.is_some() {
+            output_wall.display().to_string()
+        } else {
+            String::new()
+        }),
+    ];
+    hooks::run(config.hooks.on_scheme_apply.as_deref(), &envs).await;
+
     Ok(output_wall)
 }
 
@@ -161,6 +182,12 @@ pub async fn apply_wallpaper(
 
     let _ = status_tx.send("[ setting wallpaper... ]".to_string());
     gnome.set_wallpaper(&output).await?;
+
+    let envs = [
+        ("GNOMAD_WALLPAPER_PATH", output.display().to_string()),
+        ("GNOMAD_SCHEME_SLUG", active_scheme.map(|s| s.slug.clone()).unwrap_or_default()),
+    ];
+    hooks::run(config.hooks.on_wallpaper_apply.as_deref(), &envs).await;
 
     Ok(output)
 }

@@ -1,4 +1,5 @@
 use crate::pipeline::gowall::write_palette_json;
+use crate::pipeline::hooks;
 use crate::schemes::types::Scheme;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -93,6 +94,7 @@ pub async fn batch_convert(
     wallpaper_dir: &Path,
     cache_dir: &Path,
     force: bool,
+    hook_cmd: Option<String>,
     status_tx: tokio::sync::watch::Sender<String>,
 ) -> Result<()> {
     let slug_cache_dir = scheme_cache_dir(cache_dir, &scheme.slug, wallpaper_dir);
@@ -147,6 +149,12 @@ pub async fn batch_convert(
 
     if uncached_count == 0 {
         let _ = status_tx.send(format!("[ all {source_count} wallpapers already cached ]"));
+        let envs = [
+            ("GNOMAD_SCHEME_SLUG", scheme.slug.clone()),
+            ("GNOMAD_CACHE_DIR", slug_cache_dir.display().to_string()),
+            ("GNOMAD_WALLPAPER_COUNT", source_count.to_string()),
+        ];
+        hooks::run(hook_cmd.as_deref(), &envs).await;
         return Ok(());
     }
 
@@ -192,6 +200,12 @@ pub async fn batch_convert(
 
     if failed == 0 {
         let _ = status_tx.send(format!("[ converted {completed} wallpapers ]"));
+        let envs = [
+            ("GNOMAD_SCHEME_SLUG", scheme.slug.clone()),
+            ("GNOMAD_CACHE_DIR", slug_cache_dir.display().to_string()),
+            ("GNOMAD_WALLPAPER_COUNT", completed.to_string()),
+        ];
+        hooks::run(hook_cmd.as_deref(), &envs).await;
         Ok(())
     } else {
         let _ = status_tx.send(format!("[ {completed} done, {failed} failed ]"));

@@ -620,6 +620,7 @@ impl App {
                 &config.wallpaper_dir,
                 &config.wallpaper_cache_dir,
                 force,
+                config.hooks.on_wallpaper_batch_convert.clone(),
                 status_tx,
             )
             .await;
@@ -662,6 +663,7 @@ impl App {
                 &scheme,
                 config.slideshow_static_secs,
                 config.slideshow_transition_secs,
+                config.hooks.on_wallpaper_batch_convert.clone(),
                 status_tx,
             )
             .await;
