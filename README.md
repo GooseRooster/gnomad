@@ -36,16 +36,17 @@ https://youtu.be/VyY0kjDfrCM
 - **Custom schemes** — drop your own YAML files into a configured directory and they appear alongside the catalogue
 - **Dark/light preference** — optionally filter schemes to match your GNOME colour scheme setting (prefer-dark / prefer-light)
 - **Adwaita for Steam** — optional integration with [Adwaita-for-Steam](https://github.com/tkashkin/Adwaita-for-Steam); writes scheme colours to its custom CSS override on every scheme switch, keeping Steam's UI in sync with your desktop
+- **Hooks**  — Support for custom hooks in config allowing you to run your own shell commands whenever gnomad changes the color scheme, wallpaper, or batch converts a directory. 
 
 ---
 
 ## Requirements
 
 - GNOME 45+ on Wayland
-- `rustup` installed from your distribution's package manager
-- `tinty` in `$PATH` — `cargo install tinty`
+- `rustup` installed from your distribution's package manager, or Homebrew
+- `tinty` in `$PATH` — `cargo install tinty` or `brew install tinty` with the tinted-theming brew tap configured
 - `git` in `$PATH`
-- `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation) *(optional — only required when `wallpaper_enabled = true`, which is the default)*
+- `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation) *(optional — only required when `wallpaper_enabled = true`, which is the default. Also supports installation on linux via homebrew)*
 - A terminal with [Sixel](https://en.wikipedia.org/wiki/Sixel) or [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support for wallpaper preview (e.g. Kitty, foot, WezTerm, Ghostty) *(optional — wallpaper panel only)*
 
 ---
@@ -113,9 +114,9 @@ tinty sync
 
 See the [Tinty documentation](https://github.com/tinted-theming/tinty) for details.
 
-For **custom schemes** (from `custom_schemes_dir`), gnomad automatically writes a copy into tinty's own custom-schemes directory (`~/.local/share/tinted-theming/tinty/custom-schemes/<system>/<slug>.yaml`) immediately before every `tinty apply` call — no manual registration or `tinty sync` needed. This file is regenerated on every apply, so edits to your source YAML in `custom_schemes_dir` take effect on the next scheme switch.
+For **custom schemes** (from `custom_schemes_dir`), gnomad automatically writes a copy into tinty's own custom-schemes directory (`~/.local/share/tinted-theming/tinty/custom-schemes/<system>/<slug>.yaml`) immediately before every `tinty apply` call, no manual registration or `tinty sync` needed. This file is regenerated on every apply, so edits to your source YAML in `custom_schemes_dir` take effect on the next scheme switch, effectively allowing you to manage your schemes entirely from gnomad.
 
-gnomad will warn on startup if User Themes is not detected or if Tinty/gowall are missing from `$PATH`.
+gnomad will warn on startup if dependencies are missing.
 
 ### 4. Adwaita for Steam (optional)
 
@@ -187,7 +188,7 @@ Configure them under a `[hooks]` table in `config.toml`:
 on_wallpaper_batch_convert = "/usr/bin/gsettings set org.gnome.shell.extensions.wallpaper-slideshow.picture-uri-list-source-directory \"file://$GNOMAD_CACHE_DIR\""
 ```
 
-> Use full paths like `/usr/bin/gsettings` rather than bare `gsettings` — avoids PATH issues with tools like Homebrew shadowing system binaries, and mirrors gnomad's own internal convention (see `gsettings_set`/`gsettings_get` in `src/pipeline/gnome.rs`).
+> Use full paths like `/usr/bin/gsettings` rather than bare `gsettings`. This avoids PATH issues with tools like Homebrew shadowing system binaries, and mirrors gnomad's own internal convention (see `gsettings_set`/`gsettings_get` in `src/pipeline/gnome.rs`).
 
 | Key | Fires | Env vars available |
 |---|---|---|
