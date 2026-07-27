@@ -71,6 +71,7 @@ assets/
 - **Accent color**: GNOME's gsettings `accent-color` only accepts named presets. Use CSS `@define-color accent_color/accent_bg_color/accent_fg_color` instead.
 - **Shell CSS reload**: Toggle `color-scheme` gsettings value to force GNOME Shell to re-read the CSS, then restore original value.
 - **Wallpaper cache**: Converted wallpapers are cached per-scheme at `~/.local/share/gnomad/wallpaper-cache/<slug>/`. Cache is checked before running gowall.
+- **Wallpaper features default off**: `wallpaper_enabled` defaults to `false` in config — users opt in via `~/.config/gnomad/config.toml`. `gowall` is still a required PATH binary regardless (checked unconditionally at startup, same as `git`/`tinty`).
 - **Child process I/O**: All subprocesses must use `.stdout(Stdio::null()).stderr(Stdio::null())` — the TUI owns the terminal fd and any inherited I/O corrupts the display.
 - **Verbose logging**: `-v` writes to `~/.local/share/gnomad/gnomad.log` (not stderr) since stderr goes to the alternate screen during TUI operation.
 

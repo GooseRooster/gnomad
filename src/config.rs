@@ -19,7 +19,7 @@ pub struct Config {
     pub wallpaper_cache_dir: PathBuf,
     #[serde(default = "default_true")]
     pub follow_user_scheme_type: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub wallpaper_enabled: bool,
     #[serde(default)]
     pub adwaita_steam_enabled: bool,
@@ -121,7 +121,7 @@ impl Config {
             output_wallpaper_path: default_output_wallpaper_path(),
             wallpaper_cache_dir: default_wallpaper_cache_dir(),
             follow_user_scheme_type: true,
-            wallpaper_enabled: true,
+            wallpaper_enabled: false,
             adwaita_steam_enabled: false,
             slideshow_static_secs: default_slideshow_static_secs(),
             slideshow_transition_secs: default_slideshow_transition_secs(),

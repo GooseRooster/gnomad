@@ -86,9 +86,7 @@ async fn main() -> Result<()> {
 
     // Startup checks
     check_binary("git")?;
-    if config.wallpaper_enabled {
-        check_binary("gowall")?;
-    }
+    check_binary("gowall")?;
     check_binary("tinty")?;
 
     // Ensure data dirs exist

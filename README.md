@@ -5,7 +5,7 @@
 
 Your GNOME theming companion - right in the terminal. Built in Rust with [Ratatui](https://ratatui.rs), leveraging [gowall](https://github.com/Achno/gowall) and [tinty](https://github.com/tinted-theming/tinty).
 
-Browse and apply base16/base24 colour schemes across your entire GNOME desktop in one keypress. On scheme switch, gnomad converts your wallpaper to match the palette, delegates terminal and app theming to Tinty, writes custom GTK 3/4 and GNOME Shell CSS, and triggers a shell reload. A second panel lets you browse your wallpaper directory and apply any image against the active scheme. Wallpaper features are optional — set `wallpaper_enabled = false` in config to manage only styling and theming, with no gowall dependency.
+Browse and apply base16/base24 colour schemes across your entire GNOME desktop in one keypress. On scheme switch, gnomad converts your wallpaper to match the palette, delegates terminal and app theming to Tinty, writes custom GTK 3/4 and GNOME Shell CSS, and triggers a shell reload. A second panel lets you browse your wallpaper directory and apply any image against the active scheme. Wallpaper features are opt-in — set `wallpaper_enabled = true` in config to enable them.
 
 ---
 
@@ -46,7 +46,7 @@ https://youtu.be/VyY0kjDfrCM
 - `rustup` installed from your distribution's package manager, or Homebrew
 - `tinty` in `$PATH` — `cargo install tinty` or `brew install tinty` with the tinted-theming brew tap configured
 - `git` in `$PATH`
-- `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation) *(optional — only required when `wallpaper_enabled = true`, which is the default. Also supports installation on linux via homebrew)*
+- `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation) (also supports installation on linux via homebrew)
 - A terminal with [Sixel](https://en.wikipedia.org/wiki/Sixel) or [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support for wallpaper preview (e.g. Kitty, foot, WezTerm, Ghostty) *(optional — wallpaper panel only)*
 
 ---
@@ -148,7 +148,7 @@ default_scheme = "base16-gruvbox-dark-hard"               # optional
 output_wallpaper_path = "~/.local/share/gnomad/current-wallpaper.png"
 wallpaper_cache_dir = "~/.local/share/gnomad/wallpapers"
 follow_user_scheme_type = true   # filter schemes by GNOME dark/light preference
-wallpaper_enabled = true         # set to false to disable all wallpaper features
+wallpaper_enabled = false        # set to true to enable wallpaper features
 adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integration
 slideshow_static_secs = 3600     # seconds each wallpaper is shown before crossfading
 slideshow_transition_secs = 1800 # seconds each crossfade lasts
@@ -168,7 +168,7 @@ slideshow_transition_secs = 1800 # seconds each crossfade lasts
 | `output_wallpaper_path` | `~/.local/share/gnomad/current-wallpaper.png` | Where the converted wallpaper is written |
 | `wallpaper_cache_dir` | `~/.local/share/gnomad/wallpapers` | Root for per-scheme wallpaper cache |
 | `follow_user_scheme_type` | `true` | Filter scheme list to match GNOME's prefer-dark/prefer-light setting |
-| `wallpaper_enabled` | `true` | When `false`, disables all wallpaper operations and the wallpaper panel; `gowall` is not required |
+| `wallpaper_enabled` | `false` | When `true`, enables wallpaper operations and the wallpaper panel |
 | `adwaita_steam_enabled` | `false` | When `true`, writes scheme colours to Adwaita for Steam's custom CSS on each scheme switch; requires Adwaita-for-Steam to be installed |
 | `slideshow_static_secs` | `3600` | How long each wallpaper is displayed (in seconds) before the crossfade begins |
 | `slideshow_transition_secs` | `1800` | Duration of each crossfade transition in seconds. GNOME Shell's compositor updates wallpaper opacity at most once per second, so transitions shorter than ~60 s will appear choppy. Long values (≥1800 s) make each opacity step imperceptible. |
