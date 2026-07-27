@@ -75,6 +75,18 @@ On first launch gnomad will clone the tinted-theming schemes repository into `~/
 
 ---
 
+## Development
+
+A [dev container](.devcontainer/devcontainer.json) is provided for building and running gnomad without setting up Rust, `tinty`, or `gowall` locally. It's based on the standard Rust devcontainer image and installs `tinty` (via `cargo install`) and `gowall` (prebuilt release binary) on top of it — `cargo build`/`cargo run` work immediately inside the container.
+
+Note that the GNOME integration itself (gsettings, Shell CSS reload, wallpaper set) needs a real GNOME session and won't do anything useful inside the container — this environment is for building and iterating on the code, not exercising the desktop pipeline end to end.
+
+Open the repo in VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension and run "Reopen in Container", or use the [devcontainer CLI](https://github.com/devcontainers/cli).
+
+A `.devcontainer/personal/devcontainer.json` variant is also included, which layers Homebrew + [chezmoi](https://www.chezmoi.io) on top of the same base image to pull in a personal dotfiles/Neovim setup. It's specific to the maintainer's own dotfiles repo and won't be useful as-is to other contributors, but it's a template if you want to wire up your own equivalent — swap the `chezmoi init` URL for your own dotfiles repo.
+
+---
+
 ## One-Time Setup
 
 ### 1. Shell theme (required for GNOME Shell panel theming)

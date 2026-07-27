@@ -1,0 +1,33 @@
+// Personal variant: same base image and runtime deps as the default config
+// (Rust toolchain, git, gowall, tinty — see ../Dockerfile), then Homebrew via
+// the same devcontainer Feature used in GooseRooster/dotfiles'
+// devcontainer-templates/standalone, then the rest of the environment --
+// including the real Neovim config -- comes from chezmoi + bootstrap-cli.sh
+// --devcontainer, exactly like that template.
+//
+// `brew install chezmoi` runs before `chezmoi init` because the Homebrew
+// feature only installs Homebrew itself, not any formulae -- chezmoi has to
+// come from somewhere before it can clone the dotfiles that contain
+// bootstrap-cli.sh. bootstrap-cli.sh's own base.Brewfile also lists chezmoi;
+// that's a harmless no-op re-run once it's already installed.
+{
+  "name": "gnomad (personal)",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "features": {
+    "ghcr.io/meaningful-ooo/devcontainer-features/homebrew:2": {}
+  },
+  "containerEnv": {
+    "DEVCONTAINER": "true",
+    // Neovim loads a minimal profile in dev containers (markdown + git/json/yaml/
+    // docker baseline). List the extra languages this container needs, comma-
+    // separated, to fully enable them (extras + LSP/DAP/treesitter via Mason).
+    // Valid tokens: python rust typescript java clang cmake docker sql json
+    // yaml nushell git dotnet. Omit/empty -> baseline only. Set NVIM_PROFILE=full to
+    // enable everything instead. See ~/.config/nvim/lua/config/profile.lua.
+    "NVIM_LANGS": "rust"
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "brew install chezmoi && chezmoi init https://github.com/GooseRooster/dotfiles.git && cd $(chezmoi source-path) && ./bootstrap-cli.sh --devcontainer"
+}
