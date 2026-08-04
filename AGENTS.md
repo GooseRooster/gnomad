@@ -1,6 +1,7 @@
-# gnomad
+# AGENTS.md
 
-Rust/Ratatui TUI for GNOME colour scheme and wallpaper management using base16/base24 tinted-theming standards.
+Operational guidance for coding agents working in this repository. For the
+project description and architecture, see [PROJECT.md](PROJECT.md).
 
 ## Build & Run
 
@@ -11,11 +12,13 @@ cargo run                # run TUI
 cargo run -- -v          # verbose (logs to ~/.local/share/gnomad/gnomad.log)
 cargo run -- --apply <slug>       # headless: apply scheme by slug
 cargo run -- --update-schemes     # headless: pull latest schemes repo
+cargo run -- --populate-json-scheme  # headless: refresh /tmp/gnomad-current-scheme.json
 ```
 
 ## Runtime Dependencies
 
-Must be in PATH: `git`, `gowall`, `tinty`
+Must be in PATH: `git`, `gowall`, `tinty`, `gsettings`, `gnome-extensions`,
+`dconf`. The Rust toolchain is required to build.
 
 ```bash
 # gowall CLI (verified from source):
@@ -74,6 +77,7 @@ assets/
 - **Wallpaper features default off**: `wallpaper_enabled` defaults to `false` in config — users opt in via `~/.config/gnomad/config.toml`. `gowall` is still a required PATH binary regardless (checked unconditionally at startup, same as `git`/`tinty`).
 - **Child process I/O**: All subprocesses must use `.stdout(Stdio::null()).stderr(Stdio::null())` — the TUI owns the terminal fd and any inherited I/O corrupts the display.
 - **Verbose logging**: `-v` writes to `~/.local/share/gnomad/gnomad.log` (not stderr) since stderr goes to the alternate screen during TUI operation.
+- **Env-leak strip on gsettings**: `src/pipeline/gnome.rs` removes `GSETTINGS_BACKEND`, `GIO_MODULE_DIR`, and `LD_LIBRARY_PATH` from every `gsettings`/`gnome-extensions` subprocess. These vars are injected by AppImage runtimes (e.g. ghostty's sharun bundler) and redirect GIO away from dconf, which would cause writes to land in a keyfile instead of the session dconf database. Don't refactor them out without an alternative defence.
 
 ## Flatpak Overrides (one-time setup)
 

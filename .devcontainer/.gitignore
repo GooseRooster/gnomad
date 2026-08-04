@@ -1,0 +1,7 @@
+# Nested gitignore -- scoped to .devcontainer/, so the container config stays
+# self-contained.
+
+# Per-developer personalization -- never shared.
+# Copy local.example up one level to opt in:
+#   cp -r .devcontainer/local.example .devcontainer/local
+/local/

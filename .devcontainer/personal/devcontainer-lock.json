@@ -1,9 +1,0 @@
-{
-  "features": {
-    "ghcr.io/meaningful-ooo/devcontainer-features/homebrew:2": {
-      "version": "2.0.5",
-      "resolved": "ghcr.io/meaningful-ooo/devcontainer-features/homebrew@sha256:c49ba0f6275bdd0474f4c7fcf37fc84b5739838b110c7da9c16d6a409ae48a86",
-      "integrity": "sha256:c49ba0f6275bdd0474f4c7fcf37fc84b5739838b110c7da9c16d6a409ae48a86"
-    }
-  }
-}

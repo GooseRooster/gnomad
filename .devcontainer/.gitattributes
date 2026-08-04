@@ -1,0 +1,4 @@
+# Nested gitattributes -- scoped to .devcontainer/. Force LF on every file here so a
+# Windows editor can't introduce CRLF (CRLF silently breaks bash-sourced scripts
+# like config.sh). The rest of the repo keeps Git's default handling.
+* text eol=lf

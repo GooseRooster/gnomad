@@ -1,10 +1,74 @@
+// Dev container for gnomad: Rust toolchain + the GNOME CLI tools gnomad shells
+// out to (gsettings, gnome-extensions, dconf), plus tinty/gowall baked in.
+//
+// See README.md for what's baked in and host prereqs. The DBus + XDG path
+// forwarding wires `cargo run` inside the container to mutate the live host
+// GNOME session -- no GNOME-in-container required.
 {
   "name": "gnomad",
   "build": {
     "dockerfile": "Dockerfile"
   },
+  "features": {
+    // Non-root user + passwordless sudo. The rust base image already ships a
+    // uid-1000 'vscode' user; this just configures sudo/certs consistently.
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode",
+      "installZsh": false
+    }
+  },
   "remoteUser": "vscode",
-  "postCreateCommand": "cargo build",
+  // Rootless podman:
+  //  --userns=keep-id : map host uid 1000 -> the container's uid-1000 user, so the
+  //                     bind-mounted workspace is writable (else host maps to root).
+  //  --name           : stable container name instead of the CLI's vsc-<hash>.
+  "runArgs": [
+    "--userns=keep-id",
+    "--name",
+    "gnomad"
+  ],
+  // keep-id already aligns UIDs; skip the CLI's UID-sync layer.
+  "updateRemoteUserUID": false,
+  "remoteEnv": {
+    // Homebrew bin on PATH so brew-installed tools (nushell, ...) resolve in every
+    // `devcontainer exec`/terminal. Brew is installed by the personal hook (not a
+    // Feature), so nothing else adds it; inert if the personal setup isn't used.
+    "PATH": "/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${containerEnv:PATH}"
+  },
+  "containerEnv": {
+    // SSH agent forwarding: signing stays in the host agent; PRIVATE KEYS NEVER
+    // ENTER THE CONTAINER. Requires SSH_AUTH_SOCK set in the shell running the
+    // up command. (GitHub's host key is pre-seeded in the image -- see Dockerfile.)
+    "SSH_AUTH_SOCK": "/ssh-agent",
+    // GNOME session bus forwarding -- gsettings/gnome-extensions inside the
+    // container talk to the host's session bus, so they mutate the live host
+    // GNOME session. Requires a host GNOME session to be active
+    // (`echo $DBUS_SESSION_BUS_ADDRESS` on the host must show a unix:path
+    // under /run/user/<uid>/).
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+    "XDG_RUNTIME_DIR": "/run/user/1000",
+    // Inert unless someone runs the personal nvim config (profile.lua reads these).
+    "DEVCONTAINER": "true",
+    "NVIM_LANGS": "rust"
+  },
+  "mounts": [
+    // SSH agent forwarding -- private keys never enter the container.
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind",
+    // Host session bus socket -- gsettings/gnome-extensions resolve through here.
+    "source=/run/user/1000/bus,target=/run/user/1000/bus,type=bind",
+    // machine-id: DBus callers reference it; read-only on the host.
+    "source=/etc/machine-id,target=/etc/machine-id,type=bind,readonly",
+    // GTK3 / GTK4 / user-theme CSS write paths. Bind-mounted at the same
+    // container paths so gnomad's hard-coded XDG paths land on the host.
+    // Only the three subdirs gnomad actually touches are mounted -- everything
+    // else under ~/.config and ~/.local/share stays container-local (so the
+    // schemes-repo clone, wallpaper cache, and gnomad.log don't pollute the
+    // host).
+    "source=${localEnv:HOME}/.config/gtk-3.0,target=/home/vscode/.config/gtk-3.0,type=bind",
+    "source=${localEnv:HOME}/.config/gtk-4.0,target=/home/vscode/.config/gtk-4.0,type=bind",
+    "source=${localEnv:HOME}/.local/share/themes,target=/home/vscode/.local/share/themes,type=bind"
+  ],
+  "postCreateCommand": "bash .devcontainer/scripts/setup-repo.sh && bash .devcontainer/scripts/setup-local.sh",
   "customizations": {
     "vscode": {
       "extensions": ["rust-lang.rust-analyzer", "tamasfe.even-better-toml"]
