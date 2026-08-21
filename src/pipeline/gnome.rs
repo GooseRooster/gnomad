@@ -7,6 +7,21 @@ use std::process::Stdio;
 // of the session dconf database.
 const GSETTINGS_POISON_VARS: &[&str] = &["GSETTINGS_BACKEND", "GIO_MODULE_DIR"];
 
+/// Resolve the `gsettings` binary.
+///
+/// Prefer the system `/usr/bin/gsettings` when present — Homebrew ships its own
+/// `gsettings` (pulled in transitively) that lands earlier in PATH and writes to
+/// the wrong dconf database, so we must pin to the distro's copy on such setups.
+/// On systems without `/usr/bin/gsettings` (notably NixOS, where everything lives
+/// in the store), fall back to PATH resolution, which picks up the wrapped glib.
+fn gsettings_bin() -> &'static str {
+    if Path::new("/usr/bin/gsettings").exists() {
+        "/usr/bin/gsettings"
+    } else {
+        "gsettings"
+    }
+}
+
 pub struct GnomeInterface;
 
 impl GnomeInterface {
@@ -115,7 +130,7 @@ impl GnomeInterface {
     async fn gsettings_set(&self, schema: &str, key: &str, value: &str) -> Result<()> {
         tracing::debug!("gsettings set {schema} {key} {value}");
         self.warn_poison_vars();
-        let mut cmd = tokio::process::Command::new("/usr/bin/gsettings");
+        let mut cmd = tokio::process::Command::new(gsettings_bin());
         cmd.args(["set", schema, key, value])
             .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::null())
@@ -142,7 +157,7 @@ impl GnomeInterface {
     async fn gsettings_get(&self, schema: &str, key: &str) -> Result<String> {
         tracing::debug!("gsettings get {schema} {key}");
         self.warn_poison_vars();
-        let mut cmd = tokio::process::Command::new("/usr/bin/gsettings");
+        let mut cmd = tokio::process::Command::new(gsettings_bin());
         cmd.args(["get", schema, key])
             .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::piped())

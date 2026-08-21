@@ -71,6 +71,33 @@ cd gnomad
 cargo install --path .
 ```
 
+**Nix / NixOS (flake)**
+
+```bash
+# One-shot run without installing:
+nix run github:GooseRooster/gnomad
+```
+
+Or add it to a flake-based NixOS configuration:
+
+```nix
+{
+  inputs.gnomad.url = "github:GooseRooster/gnomad";
+  inputs.gnomad.inputs.nixpkgs.follows = "nixpkgs";
+
+  outputs = { nixpkgs, gnomad, ... }: {
+    nixosConfigurations.host = nixpkgs.lib.nixosSystem {
+      modules = [
+        gnomad.nixosModules.gnomad
+        { programs.gnomad.enable = true; }
+      ];
+    };
+  };
+}
+```
+
+The flake wraps `git`, `gowall`, `tinty`, `gsettings` (glib), and `sh` into gnomad's `PATH`, so it works on NixOS regardless of the ambient `PATH`. `gnome-extensions` (used for the Shell reload) is expected from the live GNOME session.
+
 On first launch gnomad will clone the tinted-theming schemes repository into `~/.local/share/gnomad/schemes-repo` automatically.
 
 ---
