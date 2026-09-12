@@ -35,6 +35,7 @@ pub fn tinty_custom_schemes_dir(system: &SchemeSystem) -> PathBuf {
 struct TintyBuilderYaml {
     system: &'static str,
     name: String,
+    slug: String,
     author: String,
     variant: String,
     palette: BTreeMap<String, String>,
@@ -45,6 +46,9 @@ struct TintyBuilderYaml {
 /// find it. Always overwrites, so edits to gnomad's custom scheme source YAML
 /// propagate on next apply. No `tinty sync` needed — tinty's apply command
 /// reads custom-schemes/ directly, bypassing its git-managed repos entirely.
+///
+/// Also registers the scheme's generated-output pattern in every installed
+/// template repo's `.git/info/exclude` — see `register_git_excludes`.
 pub async fn sync_custom_scheme(scheme: &Scheme) -> Result<()> {
     let dir = tinty_custom_schemes_dir(&scheme.system);
     tokio::fs::create_dir_all(&dir)
@@ -85,6 +89,10 @@ pub async fn sync_custom_scheme(scheme: &Scheme) -> Result<()> {
     let doc = TintyBuilderYaml {
         system: scheme.system.tag(true),
         name: scheme.name.clone(),
+        // Explicit slug so tinty's generated output files are named after
+        // gnomad's slug (`<system>-<slug>.*`) instead of slugify(name) —
+        // this is what makes the git-exclude pattern below exact.
+        slug: scheme.slug.clone(),
         author: scheme.author.clone(),
         variant,
         palette,
@@ -96,5 +104,66 @@ pub async fn sync_custom_scheme(scheme: &Scheme) -> Result<()> {
         .await
         .with_context(|| format!("writing {}", out_path.display()))?;
     tracing::debug!("synced custom scheme to tinty: {}", out_path.display());
+
+    register_git_excludes(scheme).await;
     Ok(())
+}
+
+/// Keep tinty's cloned template repos git-clean despite custom-scheme output.
+///
+/// `tinty apply <custom-scheme>` generates theme files named
+/// `*<system>-<slug>*` inside each cloned template repo. Those files are
+/// untracked, so `tinty sync`/`tinty update` refuse to run ("contains
+/// uncommitted changes") — tinty's check is a plain `git status --porcelain`.
+///
+/// Instead of committing (which needs a git identity and piles up local
+/// commits that can clash with `tinty update` checkouts), gnomad adds the
+/// output pattern to each repo's `.git/info/exclude`: repo-local, never
+/// committed, invisible to `git status`, and ignored files even survive a
+/// plain `git clean`. Idempotent — the pattern is appended only once.
+async fn register_git_excludes(scheme: &Scheme) {
+    // Wildcards on both sides: generated names vary — extensionless
+    // (themes/ghostty/base16-peat) and prefix-embedded
+    // (themes/st/st-base16-peat-0.9.3.diff) variants exist alongside the
+    // plain `base16-peat.<ext>` outputs.
+    let pattern = format!("*{}-{}*", scheme.system.tag(true), scheme.slug);
+    let repos_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .join("tinted-theming")
+        .join("tinty")
+        .join("repos");
+
+    let Ok(mut entries) = tokio::fs::read_dir(&repos_dir).await else {
+        // No repos installed yet — tinty will clone them on its own first
+        // run; the pattern gets registered on the next custom-scheme apply.
+        tracing::debug!("tinty repos dir not found at {}", repos_dir.display());
+        return;
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let repo = entry.path();
+        if !repo.join(".git").exists() {
+            continue;
+        }
+        let exclude_path = repo.join(".git").join("info").join("exclude");
+        let marker = format!("# gnomad: generated output for custom scheme '{}'", scheme.slug);
+        let existing = tokio::fs::read_to_string(&exclude_path).await.unwrap_or_default();
+        if existing.lines().any(|l| l.trim() == marker) {
+            continue;
+        }
+        let mut content = existing;
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&format!(
+            "\n# gnomad: generated output for custom scheme '{}'\n{pattern}\n",
+            scheme.slug
+        ));
+        if let Err(e) = tokio::fs::write(&exclude_path, content).await {
+            tracing::warn!(
+                "could not register git exclude in {}: {e}",
+                exclude_path.display()
+            );
+        }
+    }
 }
