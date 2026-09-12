@@ -23,6 +23,10 @@ pub struct Config {
     pub wallpaper_enabled: bool,
     #[serde(default)]
     pub adwaita_steam_enabled: bool,
+    /// Theme PaperWM (workspace bar, minimap, workspace colours) to match the
+    /// applied scheme. Requires the PaperWM extension to be installed.
+    #[serde(default)]
+    pub paperwm_enabled: bool,
     /// How long each wallpaper is displayed before the crossfade begins (seconds).
     #[serde(default = "default_slideshow_static_secs")]
     pub slideshow_static_secs: u64,
@@ -123,6 +127,7 @@ impl Config {
             follow_user_scheme_type: true,
             wallpaper_enabled: false,
             adwaita_steam_enabled: false,
+            paperwm_enabled: false,
             slideshow_static_secs: default_slideshow_static_secs(),
             slideshow_transition_secs: default_slideshow_transition_secs(),
             hooks: HooksConfig::default(),

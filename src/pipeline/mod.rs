@@ -3,6 +3,7 @@ pub mod gowall;
 pub mod gtk_css;
 pub mod hooks;
 pub mod palette;
+pub mod paperwm;
 pub mod shade;
 pub mod shell_css;
 pub mod slideshow;
@@ -89,11 +90,22 @@ pub async fn apply_scheme(
     // Step 4: Shell CSS
     let _ = status_tx.send("[ writing shell css... ]".to_string());
     debug!("writing shell css to theme: {}", config.theme_name);
-    shell_css::write_shell_css(scheme, &config.theme_name).map_err(|e| {
-        tracing::error!("shell css: {e:#}");
-        e
-    })?;
+    shell_css::write_shell_css(scheme, &config.theme_name, config.paperwm_enabled).map_err(
+        |e| {
+            tracing::error!("shell css: {e:#}");
+            e
+        },
+    )?;
     shell_css::write_theme_index(&config.theme_name)?;
+
+    // Step 4.5: PaperWM workspace colours (live-updatable via gsettings crossfade)
+    if config.paperwm_enabled {
+        let _ = status_tx.send("[ applying paperwm colors... ]".to_string());
+        debug!("applying paperwm workspace colors");
+        if let Err(e) = paperwm::apply(scheme, true).await {
+            tracing::warn!("paperwm integration failed (non-fatal): {e:#}");
+        }
+    }
 
     // Step 5: Adwaita for Steam CSS
     if config.adwaita_steam_enabled {
@@ -130,12 +142,18 @@ pub async fn apply_scheme(
         ("GNOMAD_SCHEME_SLUG", scheme.slug.clone()),
         ("GNOMAD_SCHEME_NAME", scheme.name.clone()),
         ("GNOMAD_SCHEME_SYSTEM", scheme.system.tag(true).to_string()),
-        ("GNOMAD_SCHEME_VARIANT", scheme.variant.clone().unwrap_or_default()),
-        ("GNOMAD_WALLPAPER_PATH", if source_wallpaper.is_some() {
-            output_wall.display().to_string()
-        } else {
-            String::new()
-        }),
+        (
+            "GNOMAD_SCHEME_VARIANT",
+            scheme.variant.clone().unwrap_or_default(),
+        ),
+        (
+            "GNOMAD_WALLPAPER_PATH",
+            if source_wallpaper.is_some() {
+                output_wall.display().to_string()
+            } else {
+                String::new()
+            },
+        ),
     ];
     hooks::run(config.hooks.on_scheme_apply.as_deref(), &envs).await;
 

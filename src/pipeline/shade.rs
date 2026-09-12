@@ -77,6 +77,25 @@ pub fn hex_to_rgb_tuple(hex: &str) -> (u8, u8, u8) {
     parse_hex(hex)
 }
 
+/// GTK `shade()` equivalent: multiply HSL lightness by `factor` (clamped to [0, 1]).
+pub fn gtk_shade(hex: &str, factor: f64) -> String {
+    let (r, g, b) = parse_hex(hex);
+    let (h, s, l) = rgb_to_hsl(r, g, b);
+    let (nr, ng, nb) = hsl_to_rgb(h, s, (l * factor).clamp(0.0, 1.0));
+    format!("{:02x}{:02x}{:02x}", nr, ng, nb)
+}
+
+/// GTK `mix(c1, c2, f)` equivalent: blend `f` fraction of `b` into `a`, returned as hex.
+pub fn mix_hex(a: &str, b: &str, f: f64) -> String {
+    let (r1, g1, b1) = parse_hex(a);
+    let (r2, g2, b2) = parse_hex(b);
+    let ch = |c1: u8, c2: u8| {
+        let v = c1 as f64 * (1.0 - f) + c2 as f64 * f;
+        v.round().clamp(0.0, 255.0) as u8
+    };
+    format!("{:02x}{:02x}{:02x}", ch(r1, r2), ch(g1, g2), ch(b1, b2))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +120,22 @@ mod tests {
         for shade in &s {
             assert_eq!(shade.len(), 6);
         }
+    }
+
+    #[test]
+    fn gtk_shade_matches_lightness_scale() {
+        // shade(c, 1.0) is identity
+        assert_eq!(gtk_shade("83a598", 1.0), "83a598");
+        // Lightening and darkening both stay in gamut
+        for f in [0.8, 0.85, 1.2, 1.3, 1.8, 0.94] {
+            assert_eq!(gtk_shade("282828", f).len(), 6);
+        }
+    }
+
+    #[test]
+    fn mix_hex_endpoints() {
+        assert_eq!(mix_hex("000000", "ffffff", 0.0), "000000");
+        assert_eq!(mix_hex("000000", "ffffff", 1.0), "ffffff");
+        assert_eq!(mix_hex("000000", "ffffff", 0.5), "808080");
     }
 }

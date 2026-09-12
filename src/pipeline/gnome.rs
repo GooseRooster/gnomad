@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 // These vars are injected by AppImage runtimes (e.g. ghostty's sharun bundler) and
@@ -22,11 +22,33 @@ fn gsettings_bin() -> &'static str {
     }
 }
 
-pub struct GnomeInterface;
+pub struct GnomeInterface {
+    /// Optional extra GSettings schema source dir (GSETTINGS_SCHEMA_DIR).
+    /// Needed for third-party schemas that aren't installed system-wide —
+    /// e.g. GNOME extension schemas, which on NixOS only live inside the
+    /// extension's own directory. GSETTINGS_SCHEMA_DIR adds a schema source;
+    /// it never hides the system ones.
+    schema_dir: Option<PathBuf>,
+}
 
 impl GnomeInterface {
     pub async fn new() -> Result<Self> {
-        Ok(Self)
+        Ok(Self { schema_dir: None })
+    }
+
+    /// Instance whose gsettings calls also consult `dir` for schemas.
+    pub fn with_schema_dir(dir: PathBuf) -> Self {
+        Self {
+            schema_dir: Some(dir),
+        }
+    }
+
+    fn gsettings_command(&self) -> tokio::process::Command {
+        let mut cmd = tokio::process::Command::new(gsettings_bin());
+        if let Some(dir) = &self.schema_dir {
+            cmd.env("GSETTINGS_SCHEMA_DIR", dir);
+        }
+        cmd
     }
 
     pub async fn set_wallpaper(&self, path: &Path) -> Result<()> {
@@ -130,7 +152,7 @@ impl GnomeInterface {
     async fn gsettings_set(&self, schema: &str, key: &str, value: &str) -> Result<()> {
         tracing::debug!("gsettings set {schema} {key} {value}");
         self.warn_poison_vars();
-        let mut cmd = tokio::process::Command::new(gsettings_bin());
+        let mut cmd = self.gsettings_command();
         cmd.args(["set", schema, key, value])
             .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::null())
@@ -157,7 +179,7 @@ impl GnomeInterface {
     async fn gsettings_get(&self, schema: &str, key: &str) -> Result<String> {
         tracing::debug!("gsettings get {schema} {key}");
         self.warn_poison_vars();
-        let mut cmd = tokio::process::Command::new(gsettings_bin());
+        let mut cmd = self.gsettings_command();
         cmd.args(["get", schema, key])
             .env_remove("LD_LIBRARY_PATH")
             .stdout(Stdio::piped())
@@ -181,6 +203,17 @@ impl GnomeInterface {
         let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
         tracing::debug!("gsettings get {schema} {key} => {result}");
         Ok(result)
+    }
+
+    /// Public gsettings write for third-party schemas (e.g. PaperWM's relocatable
+    /// workspace schemas). Same env-leak defence as the internal setter.
+    pub async fn gsettings_set_public(&self, schema: &str, key: &str, value: &str) -> Result<()> {
+        self.gsettings_set(schema, key, value).await
+    }
+
+    /// Public gsettings read for third-party schemas. See `gsettings_set_public`.
+    pub async fn gsettings_get_public(&self, schema: &str, key: &str) -> Result<String> {
+        self.gsettings_get(schema, key).await
     }
 
     fn warn_poison_vars(&self) {

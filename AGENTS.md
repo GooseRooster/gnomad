@@ -41,6 +41,7 @@ src/
     gowall.rs          — gowall subprocess + palette JSON writer
     gtk_css.rs         — writes ~/.config/gtk-3.0/gtk.css and gtk-4.0/gtk.css
     shell_css.rs       — writes ~/.local/share/themes/<name>/gnome-shell/gnome-shell.css
+    paperwm.rs         — PaperWM integration: workspace colour derivation + gsettings sync
     palette.rs         — build_color_map(), apply_color_map(), generate_define_color_block()
     shade.rs           — shade interpolation for palette families
     gnome.rs           — GnomeInterface: gsettings get/set, wallpaper, shell reload
@@ -55,21 +56,26 @@ src/
     animation.rs       — spinner, pipeline progress display, palette strip
 assets/
   templates/
-    gtk3-body.css      — Rewaita GTK3 template (7800+ lines, @variable_name substituted at runtime)
-    gnome-shell.css    — GNOME Shell CSS template
+    gtk3-body.css      — Rewaita GTK3 template (compact override sheet, hyphen tokens)
+    gnome-shell.css    — GNOME Shell CSS template (PaperWM section at tail, gated at write time)
 ```
 
 ## CSS Write Paths
 
 | File | Purpose |
 |---|---|
-| `~/.config/gtk-3.0/gtk.css` | GTK3: full template with all `@var` replaced by hex values |
-| `~/.config/gtk-4.0/gtk.css` | GTK4: `@define-color` block only — libadwaita handles widget styling |
+| `~/.config/gtk-3.0/gtk.css` | GTK3: `@define-color` block + compact template, all `@var` replaced by hex values |
+| `~/.config/gtk-4.0/gtk.css` | GTK4: `@import` of gnomad-colors.css only — libadwaita handles widget styling |
+| `~/.config/gtk-4.0/gnomad-colors.css` | GTK4: underscore-named `@define-color` entries (libadwaita's token convention) |
 | `~/.local/share/themes/<name>/gnome-shell/gnome-shell.css` | GNOME Shell theme |
 
 ## Key Technical Decisions
 
 - **GTK4 CSS**: Only `@define-color` entries — libadwaita reads these named colors and applies its own rules. Do NOT write widget CSS rules to gtk-4.0/gtk.css.
+- **Token convention**: CSS templates use Rewaita's hyphenated tokens (`@window-bg-color`); `build_color_map()` keys match. The GTK4 `@define-color` block keeps **underscores** (`window_bg_color`) because that is libadwaita's own named-colour convention — `build_gtk4_define_map()` exists separately for this reason.
+- **GTK3 define block**: generated in Rust (resolving upstream's mix()/shade()/alpha() expressions via `shade.rs` helpers) and prepended to the compact GTK3 template. Upstream's in-file header is stripped at vendoring time. Note: upstream's template references `@borders-color` without defining it — gnomad's map supplies it.
+- **Template re-vendoring**: when refreshing from ~/repos/Rewaita, strip the GTK3 template's `@define-color` header and keep gnomad's GPL header; re-apply the gnomad-only shell additions (workspaceSwitcherPopup block, entry focus border) on top of upstream's gnome-shell-template.css.
+- **PaperWM integration** (`paperwm_enabled`, default off): workspace colours are NOT CSS-reachable — PaperWM applies them via `Meta.Background.set_color()` and an inline selection-border style. gnomad writes the global `workspace-colors` strv plus each existing workspace's relocatable `color` key (`org.gnome.shell.extensions.paperwm.workspace:<path>/`), which PaperWM applies live with a crossfade — never toggle the extension to reload. Colours are blended ~45% toward the scheme highlight (base07) so they read as switch-animation borders; values must carry a `#` prefix (Cogl `Color.from_string` rejects bare hex). Extension schemas are not system-wide: gsettings needs `GSETTINGS_SCHEMA_DIR` pointed at `<extension path>/schemas` (resolved via `gnome-extensions info`).
 - **gowall CLI**: `gowall convert <in> -t <json> --output <out>` — output is a flag, not positional.
 - **Accent color**: GNOME's gsettings `accent-color` only accepts named presets. Use CSS `@define-color accent_color/accent_bg_color/accent_fg_color` instead.
 - **Shell CSS reload**: Toggle `color-scheme` gsettings value to force GNOME Shell to re-read the CSS, then restore original value.
