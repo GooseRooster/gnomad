@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Personal dev hook — copy to ./.dev.local.sh and edit freely (gitignored).
+# The flake's shellHook sources ./.dev.local.sh at the end of shell setup,
+# so anything you export or run here happens after the toolchain is already
+# on PATH.
+#
+# Teammates without one see nothing (the source is guarded).
+
+# ─── Personal env vars ─────────────────────────────────────────────────────
+#
+# export SOME_LOCAL_SECRET=...
+
+# ─── Personal cargo/rustup extras ──────────────────────────────────────────
+#
+# Note: rustc/cargo in this shell come from nixpkgs (not host rustup), so
+# rustup-managed component adds don't apply here. Extra cargo-installed
+# tools can go below; they land in ~/.cargo/bin.
+#
+# cargo install cargo-watch >/dev/null 2>&1 || true
+
+# ─── Personal aliases / functions ──────────────────────────────────────────
+#
+# alias run='cargo run'
+# alias watch='cargo watch -x run'

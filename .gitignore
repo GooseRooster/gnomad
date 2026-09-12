@@ -17,3 +17,8 @@ target
 
 # Release tarballs built by scripts/release.sh
 *.tar.gz
+
+# direnv / per-developer dev shell hook
+/.direnv/
+/.envrc.local
+/.dev.local.sh
