@@ -5,7 +5,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub wallpaper_dir: PathBuf,
-    pub custom_schemes_dir: Option<PathBuf>,
+    #[serde(default = "default_custom_schemes_dir")]
+    pub custom_schemes_dir: PathBuf,
     #[serde(default = "default_theme_name")]
     pub theme_name: String,
     pub default_scheme: Option<String>,
@@ -47,6 +48,13 @@ fn default_theme_name() -> String {
 
 fn default_schemes_repo_dir() -> PathBuf {
     data_dir().join("schemes-repo")
+}
+
+fn default_custom_schemes_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.config"))
+        .join("gnomad")
+        .join("schemes")
 }
 
 fn default_output_wallpaper_path() -> PathBuf {
@@ -117,7 +125,7 @@ impl Config {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("~"));
         Self {
             wallpaper_dir: home.join("Pictures").join("Wallpapers"),
-            custom_schemes_dir: None,
+            custom_schemes_dir: default_custom_schemes_dir(),
             theme_name: default_theme_name(),
             default_scheme: None,
             last_wallpaper: None,

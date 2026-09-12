@@ -149,7 +149,7 @@ async fn main() -> Result<()> {
     // Load schemes
     let schemes = fetch::load_schemes(
         &config.schemes_repo_dir,
-        config.custom_schemes_dir.as_deref(),
+        Some(&config.custom_schemes_dir),
     )
     .context("loading schemes")?;
 
@@ -216,9 +216,7 @@ fn load_scheme_by_slug(slug: &str, config: &Config) -> Result<schemes::types::Sc
         (config.schemes_repo_dir.join("base16").join(format!("{slug}.yaml")), false),
         (config.schemes_repo_dir.join("base24").join(format!("{slug}.yaml")), false),
     ];
-    if let Some(ref custom) = config.custom_schemes_dir {
-        candidates.push((custom.join(format!("{slug}.yaml")), true));
-    }
+    candidates.push((config.custom_schemes_dir.join(format!("{slug}.yaml")), true));
 
     for (path, is_custom) in &candidates {
         if let Ok(content) = std::fs::read_to_string(path) {
@@ -233,7 +231,7 @@ fn load_scheme_by_slug(slug: &str, config: &Config) -> Result<schemes::types::Sc
 async fn headless_apply(slug: &str, config: &Config) -> Result<()> {
     let schemes = fetch::load_schemes(
         &config.schemes_repo_dir,
-        config.custom_schemes_dir.as_deref(),
+        Some(&config.custom_schemes_dir),
     )?;
 
     let scheme = schemes

@@ -682,7 +682,7 @@ impl App {
         let _ = self.state.status_tx.send("[ updating schemes... ]".to_string());
 
         let repo_dir = self.config.schemes_repo_dir.clone();
-        let custom_dir = self.config.custom_schemes_dir.clone();
+        let custom_dir = Some(self.config.custom_schemes_dir.clone());
 
         self.processing_task = Some(tokio::task::spawn(async move {
             let result = async {

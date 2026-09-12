@@ -34,6 +34,7 @@ https://youtu.be/VyY0kjDfrCM
 - **Colour swatches** — inline base16/base24 palette preview for every scheme in the browser
 - **Search** — fuzzy filter the scheme list as you type
 - **Custom schemes** — drop your own YAML files into a configured directory and they appear alongside the catalogue
+- **PaperWM integration** — optional full PaperWM theming: workspace bar, minimap and workspace background colours derived from the active palette (see One-Time Setup)
 - **Dark/light preference** — optionally filter schemes to match your GNOME colour scheme setting (prefer-dark / prefer-light)
 - **Adwaita for Steam** — optional integration with [Adwaita-for-Steam](https://github.com/tkashkin/Adwaita-for-Steam); writes scheme colours to its custom CSS override on every scheme switch, keeping Steam's UI in sync with your desktop
 - **Hooks**  — Support for custom hooks in config allowing you to run your own shell commands whenever gnomad changes the color scheme, wallpaper, or batch converts a directory. 
@@ -173,7 +174,24 @@ gnomad detects native and Flatpak Steam installs automatically by checking for t
 
 > **Note:** Steam must be restarted to pick up the new colours. There is no live-reload path available outside of developer mode.
 
-### 5. Final steps
+### 5. PaperWM (optional)
+
+If you use [PaperWM](https://github.com/paperwm/PaperWM), gnomad can theme it to match the active scheme. Enable it in config:
+
+```toml
+paperwm_enabled = true
+```
+
+No other setup is required — gnomad detects the installed extension automatically. On each scheme switch it:
+
+- themes PaperWM's CSS-styled surfaces (minimap selection, clone shade, focus tooltips, workspace indicator) via the shell theme — the window position bar is deliberately left at PaperWM's default accent styling, which has better text contrast
+- derives an 18-colour workspace palette from the scheme (muted structural tones and accents, each blended toward the scheme's highlight so colours read well as the workspace-switch selection border) and writes it to PaperWM's `workspace-colors` setting plus each existing workspace's own `color` key
+
+Workspace colours are applied **live with a smooth crossfade** — PaperWM picks up gsettings changes at runtime, so there is no window-manager restart or visible jump when switching schemes. Disabling the option simply stops touching PaperWM's settings; the last applied colours remain.
+
+> **Note:** The workspace colours are set programmatically by PaperWM (not CSS), so they cannot be overridden by a shell theme alone — this is why gnomad writes them via gsettings.
+
+### 6. Final steps
 
 With the above configured - Log out and log back in. GNOME Shell CSS and GTK CSS will automatically reload when you change color schemes in gnomad from here on out.
 
@@ -185,7 +203,7 @@ Location: `~/.config/gnomad/config.toml`. Created with defaults on first run.
 
 ```toml
 wallpaper_dir = "/home/user/Pictures/Wallpapers"
-custom_schemes_dir = "/home/user/.config/gnomad/schemes"  # optional
+custom_schemes_dir = "/home/user/.config/gnomad/schemes"
 theme_name = "gnomad"
 default_scheme = "base16-gruvbox-dark-hard"               # optional
 output_wallpaper_path = "~/.local/share/gnomad/current-wallpaper.png"
@@ -193,6 +211,7 @@ wallpaper_cache_dir = "~/.local/share/gnomad/wallpapers"
 follow_user_scheme_type = true   # filter schemes by GNOME dark/light preference
 wallpaper_enabled = false        # set to true to enable wallpaper features
 adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integration
+paperwm_enabled = false          # set to true to enable PaperWM integration
 slideshow_static_secs = 3600     # seconds each wallpaper is shown before crossfading
 slideshow_transition_secs = 1800 # seconds each crossfade lasts
 
@@ -205,7 +224,7 @@ slideshow_transition_secs = 1800 # seconds each crossfade lasts
 | Key | Default | Description |
 |---|---|---|
 | `wallpaper_dir` | `~/Pictures/Wallpapers` | Directory gnomad reads wallpapers from |
-| `custom_schemes_dir` | — | Optional directory of user-supplied YAML scheme files |
+| `custom_schemes_dir` | `~/.config/gnomad/schemes` | Directory of user-supplied YAML scheme files |
 | `theme_name` | `gnomad` | Name used for the GTK/Shell theme directory |
 | `default_scheme` | — | Slug to pre-select on launch |
 | `output_wallpaper_path` | `~/.local/share/gnomad/current-wallpaper.png` | Where the converted wallpaper is written |
@@ -213,6 +232,7 @@ slideshow_transition_secs = 1800 # seconds each crossfade lasts
 | `follow_user_scheme_type` | `true` | Filter scheme list to match GNOME's prefer-dark/prefer-light setting |
 | `wallpaper_enabled` | `false` | When `true`, enables wallpaper operations and the wallpaper panel |
 | `adwaita_steam_enabled` | `false` | When `true`, writes scheme colours to Adwaita for Steam's custom CSS on each scheme switch; requires Adwaita-for-Steam to be installed |
+| `paperwm_enabled` | `false` | When `true`, themes PaperWM (workspace colours, minimap, clone shade) to match the active scheme; requires the PaperWM extension to be installed |
 | `slideshow_static_secs` | `3600` | How long each wallpaper is displayed (in seconds) before the crossfade begins |
 | `slideshow_transition_secs` | `1800` | Duration of each crossfade transition in seconds. GNOME Shell's compositor updates wallpaper opacity at most once per second, so transitions shorter than ~60 s will appear choppy. Long values (≥1800 s) make each opacity step imperceptible. |
 
@@ -292,7 +312,7 @@ Picking a wallpaper and pressing `Enter` runs only gowall + wallpaper set; no CS
 
 ## Custom Schemes
 
-Place any base16/base24 YAML files in your configured `custom_schemes_dir`. They appear in the browser with a `[*]` tag and support everything the catalogue schemes do. Both the new format (with `palette:` key) and the legacy flat format are parsed.
+Place any base16/base24 YAML files in `~/.config/gnomad/schemes` (or a custom `custom_schemes_dir`). They appear in the browser with a `[*]` tag and support everything the catalogue schemes do. Both the new format (with `palette:` key) and the legacy flat format are parsed.
 
 Under the hood, gnomad mirrors each custom scheme into tinty's `custom-schemes/<system>/` directory before applying, so Tinty-themed apps (kitty, neovim, etc.) pick up custom schemes exactly like catalogue ones.
 
