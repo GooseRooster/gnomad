@@ -294,7 +294,7 @@ When you press `Enter` on a scheme, gnomad runs these steps sequentially with a 
 2. **Tinty** — `tinty apply <slug>` — propagates the scheme to configured apps and terminals
 3. **GTK CSS** — writes colour variables to `~/.config/gtk-3.0/gtk.css` (full template) and `~/.config/gtk-4.0/gnomad-colors.css` (@define-color entries imported by `gtk.css`); 
 4. **Shell CSS** — writes a fully-resolved `gnome-shell.css` to `~/.local/share/themes/gnomad/gnome-shell/`
-5. **Adwaita for Steam** *(if `adwaita_steam_enabled = true`)* — writes a `:root { --adw-*-rgb: … }` block to Steam's `adwaita/custom/custom.css`; colours take effect on next Steam launch
+5. **Adwaita for Steam** *(if `adwaita_steam_enabled = true`)* — writes a `:root { --adw-*: … }` block to Steam's `adwaita/custom.css`; colours take effect on next Steam launch
 6. **GNOME reload** — sets the wallpaper URI via gsettings, then toggles `color-scheme` to force the shell to re-read the CSS
 
 The animation overlay is intentionally low-framerate — the light/dark toggle causes a compositor-level freeze across all Wayland clients that cannot be eliminated, only obscured.

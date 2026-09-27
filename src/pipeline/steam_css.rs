@@ -1,5 +1,4 @@
 use crate::pipeline::palette::build_color_map;
-use crate::pipeline::shade::hex_to_rgb_tuple;
 use crate::schemes::types::Scheme;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -38,7 +37,8 @@ pub fn detect_adwaita_steam() -> Option<SteamInstall> {
 }
 
 /// Returns write targets:
-/// [0] installed custom.css — takes effect after Steam restart
+/// [0] installed custom.css — the skin's `@import url("custom.css")` (from
+///     config.css) resolves here, so it takes effect after Steam restart
 /// [1] AdwSteamGtk config copy — persists across GUI reinstalls; written
 ///     proactively so it's ready if AdwSteamGtk is installed later
 fn custom_css_paths(install: &SteamInstall) -> Vec<PathBuf> {
@@ -53,7 +53,7 @@ fn custom_css_paths(install: &SteamInstall) -> Vec<PathBuf> {
         }
     };
     vec![
-        steam_root.join("steamui/adwaita/custom/custom.css"),
+        steam_root.join("steamui/adwaita/custom.css"),
         dirs::config_dir()
             .unwrap_or_else(|| home.join(".config"))
             .join("AdwSteamGtk/custom.css"),
@@ -75,105 +75,110 @@ pub fn write_steam_css(scheme: &Scheme) -> Result<()> {
     Ok(())
 }
 
-fn rgb(map: &HashMap<String, String>, key: &str) -> String {
-    let hex = map.get(key).map(String::as_str).unwrap_or("000000");
-    let (r, g, b) = hex_to_rgb_tuple(hex);
-    format!("{r}, {g}, {b}")
+/// Format a colour map value as a `#hex` colour (Adwaita for Steam v4.4+
+/// palette variables take full colour values, not `-rgb` triplets).
+fn hex(map: &HashMap<String, String>, key: &str) -> String {
+    format!("#{}", map.get(key).map(String::as_str).unwrap_or("000000"))
 }
 
+/// Generate custom.css against Adwaita for Steam's current palette.
+///
+/// The skin (v4.4) exposes semantic surface variables as `light-dark()`
+/// pairs; overriding them with flat values makes the skin follow gnomad's
+/// active scheme regardless of the system colour-scheme preference (gnomad
+/// rewrites this file on every scheme switch, and the watcher reinstalls).
+///
+/// Some variables split into `-light`/`-dark` halves (they only exist as a
+/// pair); both get the same colour. `--adw-banner` is the notification
+/// banner background wash; its text already follows `--adw-window-fg`.
 fn generate_css(map: &HashMap<String, String>) -> String {
     format!(
-        ":root {{\n\
+        "/* gnomad → Adwaita for Steam (v4.4 palette variables) */\n\
+        :root {{\n\
         \t/* Accent */\n\
-        \t--adw-accent-bg-rgb: {accent_bg} !important;\n\
-        \t--adw-accent-fg-rgb: {accent_fg} !important;\n\
-        \t--adw-accent-rgb: {accent} !important;\n\
+        \t--adw-accent-bg-light: {accent} !important;\n\
+        \t--adw-accent-bg-dark: {accent} !important;\n\
+        \t--adw-accent-fg: {accent_fg} !important;\n\
+        \t--adw-accent: {accent} !important;\n\
         \n\
         \t/* Destructive */\n\
-        \t--adw-destructive-bg-rgb: {dest_bg} !important;\n\
-        \t--adw-destructive-fg-rgb: {dest_fg} !important;\n\
-        \t--adw-destructive-rgb: {dest} !important;\n\
+        \t--adw-destructive-bg-light: {dest} !important;\n\
+        \t--adw-destructive-bg-dark: {dest} !important;\n\
+        \t--adw-destructive-fg: {dest_fg} !important;\n\
+        \t--adw-destructive: {dest} !important;\n\
         \n\
         \t/* Success */\n\
-        \t--adw-success-bg-rgb: {succ_bg} !important;\n\
-        \t--adw-success-fg-rgb: {succ_fg} !important;\n\
-        \t--adw-success-rgb: {succ} !important;\n\
+        \t--adw-success-bg-light: {succ} !important;\n\
+        \t--adw-success-bg-dark: {succ} !important;\n\
+        \t--adw-success-fg: {succ_fg} !important;\n\
+        \t--adw-success: {succ} !important;\n\
         \n\
         \t/* Warning */\n\
-        \t--adw-warning-bg-rgb: {warn_bg} !important;\n\
-        \t--adw-warning-fg-rgb: {warn_fg} !important;\n\
-        \t--adw-warning-rgb: {warn} !important;\n\
+        \t--adw-warning-bg-light: {warn} !important;\n\
+        \t--adw-warning-bg-dark: {warn} !important;\n\
+        \t--adw-warning-fg: {warn_fg} !important;\n\
+        \t--adw-warning: {warn} !important;\n\
         \n\
         \t/* Error */\n\
-        \t--adw-error-bg-rgb: {err_bg} !important;\n\
-        \t--adw-error-fg-rgb: {err_fg} !important;\n\
-        \t--adw-error-rgb: {err} !important;\n\
+        \t--adw-error-bg-light: {err} !important;\n\
+        \t--adw-error-bg-dark: {err} !important;\n\
+        \t--adw-error-fg: {err_fg} !important;\n\
+        \t--adw-error: {err} !important;\n\
         \n\
-        \t/* Window */\n\
-        \t--adw-window-bg-rgb: {win_bg} !important;\n\
-        \t--adw-window-fg-rgb: {win_fg} !important;\n\
+        \t/* Surfaces */\n\
+        \t--adw-window-bg: {win_bg} !important;\n\
+        \t--adw-window-fg: {win_fg} !important;\n\
+        \t--adw-view-bg: {view_bg} !important;\n\
+        \t--adw-view-fg: {view_fg} !important;\n\
+        \t--adw-headerbar-bg: {hdr_bg} !important;\n\
+        \t--adw-headerbar-fg: {hdr_fg} !important;\n\
+        \t--adw-headerbar-backdrop: {hdr_back} !important;\n\
+        \t--adw-headerbar-shade: {hdr_border} !important;\n\
         \n\
-        \t/* View */\n\
-        \t--adw-view-bg-rgb: {view_bg} !important;\n\
-        \t--adw-view-fg-rgb: {view_fg} !important;\n\
+        \t/* Sidebars */\n\
+        \t--adw-sidebar-bg: {side_bg} !important;\n\
+        \t--adw-sidebar-fg: {side_fg} !important;\n\
+        \t--adw-sidebar-backdrop: {side_back} !important;\n\
+        \t--adw-secondary-sidebar-bg: {side_bg} !important;\n\
+        \t--adw-secondary-sidebar-fg: {side_fg} !important;\n\
+        \t--adw-secondary-sidebar-backdrop: {win_bg} !important;\n\
         \n\
-        \t/* Headerbar */\n\
-        \t--adw-headerbar-bg-rgb: {hdr_bg} !important;\n\
-        \t--adw-headerbar-fg-rgb: {hdr_fg} !important;\n\
-        \t--adw-headerbar-border-rgb: {hdr_border} !important;\n\
-        \n\
-        \t/* Sidebar */\n\
-        \t--adw-sidebar-bg-rgb: {side_bg} !important;\n\
-        \t--adw-sidebar-fg-rgb: {side_fg} !important;\n\
-        \t--adw-sidebar-backdrop-rgb: {side_back} !important;\n\
-        \t--adw-secondary-sidebar-bg-rgb: {side_bg} !important;\n\
-        \t--adw-secondary-sidebar-fg-rgb: {side_fg} !important;\n\
-        \t--adw-secondary-sidebar-backdrop-rgb: {win_bg} !important;\n\
-        \n\
-        \t/* Card */\n\
-        \t--adw-card-fg-rgb: {card_fg} !important;\n\
-        \n\
-        \t/* Dialog */\n\
-        \t--adw-dialog-bg-rgb: {dlg_bg} !important;\n\
-        \t--adw-dialog-fg-rgb: {dlg_fg} !important;\n\
-        \n\
-        \t/* Popover */\n\
-        \t--adw-popover-bg-rgb: {pop_bg} !important;\n\
-        \t--adw-popover-fg-rgb: {pop_fg} !important;\n\
-        \n\
-        \t/* Misc */\n\
-        \t--adw-thumbnail-fg-rgb: {win_fg} !important;\n\
-        \t--adw-banner-fg-rgb: {win_fg} !important;\n\
+        \t/* Cards, dialogs, popovers, misc */\n\
+        \t--adw-card-bg: {card_bg} !important;\n\
+        \t--adw-card-fg: {card_fg} !important;\n\
+        \t--adw-dialog-bg: {dlg_bg} !important;\n\
+        \t--adw-dialog-fg: {dlg_fg} !important;\n\
+        \t--adw-popover-bg: {pop_bg} !important;\n\
+        \t--adw-popover-fg: {pop_fg} !important;\n\
+        \t--adw-thumbnail-fg: {win_fg} !important;\n\
+        \t--adw-banner: {side_bg} !important;\n\
         }}",
-        accent_bg = rgb(map, "accent-bg-color"),
-        accent_fg = rgb(map, "accent-fg-color"),
-        accent = rgb(map, "accent-color"),
-        dest_bg = rgb(map, "destructive-bg-color"),
-        dest_fg = rgb(map, "destructive-fg-color"),
-        dest = rgb(map, "destructive-color"),
-        succ_bg = rgb(map, "success-bg-color"),
-        succ_fg = rgb(map, "success-fg-color"),
-        succ = rgb(map, "success-color"),
-        warn_bg = rgb(map, "warning-bg-color"),
-        warn_fg = rgb(map, "warning-fg-color"),
-        warn = rgb(map, "warning-color"),
-        err_bg = rgb(map, "error-bg-color"),
-        err_fg = rgb(map, "error-fg-color"),
-        err = rgb(map, "error-color"),
-        win_bg = rgb(map, "window-bg-color"),
-        win_fg = rgb(map, "window-fg-color"),
-        view_bg = rgb(map, "view-bg-color"),
-        view_fg = rgb(map, "view-fg-color"),
-        hdr_bg = rgb(map, "headerbar-bg-color"),
-        hdr_fg = rgb(map, "headerbar-fg-color"),
-        hdr_border = rgb(map, "headerbar-border-color"),
-        side_bg = rgb(map, "sidebar-bg-color"),
-        side_fg = rgb(map, "sidebar-fg-color"),
-        side_back = rgb(map, "sidebar-backdrop-color"),
-        card_fg = rgb(map, "card-fg-color"),
-        dlg_bg = rgb(map, "dialog-bg-color"),
-        dlg_fg = rgb(map, "dialog-fg-color"),
-        pop_bg = rgb(map, "popover-bg-color"),
-        pop_fg = rgb(map, "popover-fg-color"),
+        accent = hex(map, "accent-bg-color"),
+        accent_fg = hex(map, "accent-fg-color"),
+        dest = hex(map, "destructive-bg-color"),
+        dest_fg = hex(map, "destructive-fg-color"),
+        succ = hex(map, "success-bg-color"),
+        succ_fg = hex(map, "success-fg-color"),
+        warn = hex(map, "warning-bg-color"),
+        warn_fg = hex(map, "warning-fg-color"),
+        err = hex(map, "error-bg-color"),
+        err_fg = hex(map, "error-fg-color"),
+        win_bg = hex(map, "window-bg-color"),
+        win_fg = hex(map, "window-fg-color"),
+        view_bg = hex(map, "view-bg-color"),
+        view_fg = hex(map, "view-fg-color"),
+        hdr_bg = hex(map, "headerbar-bg-color"),
+        hdr_fg = hex(map, "headerbar-fg-color"),
+        hdr_back = hex(map, "headerbar-backdrop-color"),
+        hdr_border = hex(map, "headerbar-border-color"),
+        side_bg = hex(map, "sidebar-bg-color"),
+        side_fg = hex(map, "sidebar-fg-color"),
+        side_back = hex(map, "sidebar-backdrop-color"),
+        card_bg = hex(map, "card-bg-color"),
+        card_fg = hex(map, "card-fg-color"),
+        dlg_bg = hex(map, "dialog-bg-color"),
+        dlg_fg = hex(map, "dialog-fg-color"),
+        pop_bg = hex(map, "popover-bg-color"),
+        pop_fg = hex(map, "popover-fg-color"),
     )
 }
