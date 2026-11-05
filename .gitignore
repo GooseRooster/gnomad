@@ -21,4 +21,3 @@ target
 # direnv / per-developer dev shell hook
 /.direnv/
 /.envrc.local
-/.dev.local.sh

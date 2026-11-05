@@ -113,7 +113,7 @@ nix develop      # enter the dev shell
 
 If you use [direnv](https://direnv.net) (ideally with [nix-direnv](https://github.com/nix-community/nix-direnv)), run `direnv allow` once in the repo and the shell activates automatically on `cd`.
 
-For per-developer personalization (env vars, aliases, personal tools), copy `.dev.local.sh.example` to `.dev.local.sh` — it's gitignored and sourced by the dev shell on entry if present.
+For per-developer personalization (env vars, aliases, personal tools), copy `.envrc.local.example` to `.envrc.local` — it's gitignored and sourced by `.envrc` after `use flake` (via direnv). `devshell-init` creates it automatically from the example when scaffolding a new repo.
 
 Note that the GNOME integration itself (gsettings, Shell CSS reload, wallpaper set) needs a real GNOME session and won't do anything useful in a bare container/VM — this environment is for building and iterating on the code, not exercising the desktop pipeline end to end.
 

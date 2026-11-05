@@ -1,0 +1,23 @@
+# Personal dev hook — auto-created as ./.envrc.local by devshell-init
+# (gitignored). Sourced by .envrc AFTER `use flake`. Edits reload direnv.
+#
+# This file is only a template — the real ./.envrc.local is entirely yours.
+
+# NVIM_LANGS tells nvim's environment profile which editor features to load
+# in this shell. Compose-safe.
+export NVIM_LANGS="${NVIM_LANGS:-},rust"
+#
+# export SOME_LOCAL_SECRET=...
+
+# ─── Personal cargo extras ─────────────────────────────────────────────────
+#
+# rustc/cargo in this shell come from nixpkgs (not host rustup), so
+# rustup-managed component adds don't apply here. Extra cargo-installed
+# tools can go below; they land in ~/.cargo/bin.
+#
+# cargo install cargo-watch >/dev/null 2>&1 || true
+
+# ─── Personal aliases / functions ──────────────────────────────────────────
+#
+# alias run='cargo run'
+# alias watch='cargo watch -x run'

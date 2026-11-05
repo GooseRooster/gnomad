@@ -33,9 +33,9 @@
       #     bin/codelldb on PATH (no top-level nixpkgs attr; the extension's
       #     passthru.adapter is the packaged standalone build). nvim's rust
       #     DAP locates it via PATH for the same mason reason.
-      #   * ./.dev.local.sh sourced on shell entry if present — the
-      #     per-developer personalization hook (gitignored; teammates
-      #     without one see nothing).
+      #   * per-developer personalization lives in ./.envrc.local
+      #     (gitignored, sourced by .envrc) — nothing personal in this
+      #     flake. Teammates without one see nothing.
       #
       # Entry points:
       #   * direnv users:  `direnv allow`   (auto-activates via .envrc)
@@ -57,15 +57,6 @@
               pkgs.glib
               pkgs.bash
             ];
-
-            shellHook = ''
-              # ── Personal hook. Gitignored; teammates without one see nothing.
-              #    Auto-created from .dev.local.sh.example if desired.
-              if [ -f ./.dev.local.sh ]; then
-                # shellcheck source=/dev/null
-                . ./.dev.local.sh
-              fi
-            '';
           };
         });
     };
