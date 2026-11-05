@@ -1,0 +1,191 @@
+#!/usr/bin/env sh
+# Generate a tinted8 scheme from ChromaLeon's current colours and apply it
+# through tinty.
+#
+# ChromaLeon is a GNOME Shell extension that derives its accent colour from
+# the desktop wallpaper. This script turns that accent — plus the wallpaper's
+# own swatches — into a tinted8 scheme, so terminals and other tinty targets
+# follow the same colours as the shell.
+#
+# It is triggered by three things (see systemd/):
+#   * ChromaLeon rewriting its generated stylesheets (accent or tint change),
+#   * the desktop light/dark toggle,
+#   * the wallpaper changing — which is what gnomad does in gowall-only mode.
+#
+# The wallpaper trigger matters because a gowall-converted wallpaper is
+# already recoloured to the scheme's palette: the accent ChromaLeon derives
+# from it barely moves, so ChromaLeon often does not rewrite its stylesheets
+# at all and would leave the terminal theme on the previous wallpaper.
+#
+# Environment:
+#   CHROMALEON_PALETTE       path to chromaleon_palette.py (default: next to this script)
+#   CHROMALEON_PIXELS        path to chromaleon_pixels.js  (default: next to this script)
+#   CHROMALEON_DEPTH         0..3, how far the palette moves from the shell surface (default 1)
+#   CHROMALEON_SURFACE_TARGET auto|panel|menu, which shell surface to anchor on (default auto)
+#
+# Usage: chromaleon_tinty [--force]
+#   --force  re-apply even when the generated scheme is unchanged
+
+force=0
+if [ "${1:-}" = "--force" ]; then
+  force=1
+fi
+
+# Locate the sibling helper scripts, following symlinks so the script works
+# both from a checkout and from a symlink in ~/.local/bin.
+_self="$0"
+if command -v readlink >/dev/null 2>&1; then
+  _resolved="$(readlink -f "$_self" 2>/dev/null || true)"
+  if [ -n "$_resolved" ]; then
+    _self="$_resolved"
+  fi
+fi
+script_dir="$(CDPATH= cd -- "$(dirname -- "$_self")" && pwd)"
+
+CHROMALEON_PALETTE="${CHROMALEON_PALETTE:-$script_dir/chromaleon_palette.py}"
+CHROMALEON_PIXELS="${CHROMALEON_PIXELS:-$script_dir/chromaleon_pixels.js}"
+export CHROMALEON_PALETTE CHROMALEON_PIXELS
+
+# Give ChromaLeon a moment to finish its three-file write burst.
+sleep 1
+
+home="${HOME:?HOME is not set}"
+data_dir="${XDG_DATA_HOME:-$home/.local/share}/tinted-theming/tinty"
+scheme_dir="$data_dir/custom-schemes/tinted8"
+scheme_file="$scheme_dir/chromaleon.yaml"
+
+read_key() {
+  dconf read "$1" 2>/dev/null | tr -d "'" || true
+}
+
+read_bool() {
+  # dconf has no value for an unset key; apply the ChromaLeon schema default.
+  value="$(read_key "$1")"
+  if [ -z "$value" ]; then
+    value="${2:-false}"
+  fi
+  if [ "$value" = "true" ]; then
+    printf 'true\n'
+  else
+    printf 'false\n'
+  fi
+}
+
+accent="$(read_key /org/gnome/shell/extensions/chromaleon/accent-color)"
+accent="${accent:-#785ef0}"
+gnome_colors="$(read_bool /org/gnome/shell/extensions/chromaleon/gnome-colors false)"
+gnome_accent="$(read_key /org/gnome/desktop/interface/accent-color)"
+tint_shell="$(read_bool /org/gnome/shell/extensions/chromaleon/tint-shell false)"
+tint_panel="$(read_bool /org/gnome/shell/extensions/chromaleon/tint-panel true)"
+tinting_strength="$(read_key /org/gnome/shell/extensions/chromaleon/tinting-strength)"
+tinting_strength="${tinting_strength:-1}"
+darker="$(read_bool /org/gnome/shell/extensions/chromaleon/darker false)"
+full_light="$(read_bool /org/gnome/shell/extensions/chromaleon/full-light false)"
+color_scheme="$(read_key /org/gnome/desktop/interface/color-scheme)"
+prefer_light="$(read_key /org/gnome/shell/extensions/chromaleon/prefer-light)"
+
+# Mirror ChromaLeon's _shouldUseLightShell: an explicit prefer-dark always wins,
+# otherwise prefer-light (extension) or prefer-light (system) selects light.
+if [ "$color_scheme" = "prefer-dark" ]; then
+  variant="dark"
+elif [ "$prefer_light" = "true" ] || [ "$color_scheme" = "prefer-light" ]; then
+  variant="light"
+else
+  variant="dark"
+fi
+
+# ChromaLeon writes the light and dark stylesheets side by side; the active one
+# is selected with the same logic it uses for the shell.
+if [ "$variant" = "light" ]; then
+  shell_css="$home/.cache/chromaleon/chromaleon-shell.css"
+else
+  shell_css="$home/.cache/chromaleon/chromaleon-shell-dark.css"
+fi
+
+# Wallpaper selection mirrors ChromaLeon's _getWallpaperUri.
+if [ "$color_scheme" = "prefer-dark" ]; then
+  wallpaper_uri="$(read_key /org/gnome/desktop/background/picture-uri-dark)"
+else
+  wallpaper_uri="$(read_key /org/gnome/desktop/background/picture-uri)"
+fi
+
+wallpaper=""
+case "$wallpaper_uri" in
+  file://*)
+    wallpaper="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "${wallpaper_uri#file://}")"
+    ;;
+esac
+
+# Serialise path-unit and variant-watcher invocations.
+lock="${XDG_RUNTIME_DIR:-/tmp}/chromaleon-tinty.lock"
+exec 9>"$lock"
+flock 9
+
+mkdir -p "$scheme_dir"
+tmp="$(mktemp)"
+pixels_tmp="$(mktemp)"
+trap 'rm -f "$tmp" "$pixels_tmp"' EXIT
+
+run_palette() {
+  python3 "$CHROMALEON_PALETTE" \
+    --accent "$accent" \
+    --gnome-colors "$gnome_colors" \
+    --gnome-accent "$gnome_accent" \
+    --variant "$variant" \
+    --shell-css "$shell_css" \
+    --tint-shell "$tint_shell" \
+    --tint-panel "$tint_panel" \
+    --tint-strength "$tinting_strength" \
+    --darker "$darker" \
+    --full-light "$full_light" \
+    --surface-target "${CHROMALEON_SURFACE_TARGET:-auto}" \
+    --depth "${CHROMALEON_DEPTH:-1}" \
+    "$@"
+}
+
+generated=0
+if [ -n "$wallpaper" ] && [ -f "$wallpaper" ]; then
+  # Prefer GdkPixbuf via GJS: it reproduces ChromaLeon's 64x64
+  # aspect-preserving scale exactly. The system GJS is the same runtime the
+  # extension uses, so the extracted swatches match its cache.
+  if command -v gjs >/dev/null 2>&1; then
+    if gjs "$CHROMALEON_PIXELS" "$wallpaper" >"$pixels_tmp" 2>/dev/null \
+      && [ -s "$pixels_tmp" ]; then
+      if run_palette --pixels-b64 <"$pixels_tmp" >"$tmp"; then
+        generated=1
+      fi
+    fi
+  fi
+
+  # Fallback for systems without GJS: preserve the aspect ratio and use the
+  # closest ImageMagick filter, then let the OKLCH layer absorb the small
+  # differences.
+  if [ "$generated" -eq 0 ]; then
+    if magick "$wallpaper" -alpha off -resize 64x64 -filter Hermite \
+      -depth 8 rgb:- 2>/dev/null | run_palette >"$tmp"; then
+      if [ -s "$tmp" ]; then
+        generated=1
+      fi
+    fi
+  fi
+fi
+
+if [ "$generated" -eq 0 ]; then
+  # Dynamic/XML wallpaper or extraction failure: derive from the accent alone.
+  run_palette </dev/null >"$tmp"
+fi
+
+if [ ! -s "$tmp" ]; then
+  echo "chromaleon_tinty: palette generation produced no output" >&2
+  exit 1
+fi
+
+if [ "$force" -eq 0 ] && [ -f "$scheme_file" ] && cmp -s "$tmp" "$scheme_file"; then
+  # Scheme unchanged (e.g. a non-colour ChromaLeon stylesheet rewrite).
+  exit 0
+fi
+
+mv "$tmp" "$scheme_file"
+tmp=""
+
+tinty apply tinted8-chromaleon

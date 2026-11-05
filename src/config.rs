@@ -139,6 +139,17 @@ pub struct Config {
     /// short transitions (≤60 s) produce visible 1fps stepping.
     #[serde(default = "default_slideshow_transition_secs")]
     pub slideshow_transition_secs: u64,
+    /// Milliseconds to wait after the wallpaper has been set before the
+    /// `on_wallpaper_apply` hook runs.
+    ///
+    /// Wallpaper-reactive consumers (GNOME Shell extensions such as
+    /// ChromaLeon) watch `org.gnome.desktop.background` and re-derive their
+    /// colours asynchronously. A hook that fires immediately would read the
+    /// *previous* accent, so the settle window is what lets the
+    /// "wallpaper changed -> theme followed" chain work end to end.
+    /// Set to 0 to run the hook immediately.
+    #[serde(default = "default_wallpaper_settle_ms")]
+    pub wallpaper_settle_ms: u64,
     #[serde(default)]
     pub hooks: HooksConfig,
 }
@@ -206,6 +217,10 @@ fn default_slideshow_static_secs() -> u64 {
 
 fn default_slideshow_transition_secs() -> u64 {
     1800
+}
+
+fn default_wallpaper_settle_ms() -> u64 {
+    1500
 }
 
 pub fn data_dir() -> PathBuf {
@@ -299,6 +314,7 @@ impl Config {
             paperwm_enabled: false,
             slideshow_static_secs: default_slideshow_static_secs(),
             slideshow_transition_secs: default_slideshow_transition_secs(),
+            wallpaper_settle_ms: default_wallpaper_settle_ms(),
             hooks: HooksConfig::default(),
         }
     }

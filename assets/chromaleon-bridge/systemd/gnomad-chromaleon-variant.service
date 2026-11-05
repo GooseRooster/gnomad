@@ -1,0 +1,12 @@
+[Unit]
+Description=Re-derive the ChromaLeon scheme on wallpaper and light/dark changes
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/chromaleon_tinty_watch
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

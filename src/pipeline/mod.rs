@@ -18,21 +18,158 @@ use crate::config::Config;
 use crate::schemes::types::Scheme;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::sync::watch;
 use tracing::debug;
 
+/// How many `current-*` outputs to keep around in the output directory.
+/// Each (source, scheme) combination gets its own file so the wallpaper URI
+/// always changes; without pruning the directory grows without bound.
+const OUTPUT_WALLPAPERS_KEPT: usize = 4;
+
+/// Short, stable digest of a content identity string (FNV-1a 64, hex).
+fn short_digest(material: &str) -> String {
+    let mut h: u64 = 14695981039346656037;
+    for b in material.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    format!("{h:08x}")
+}
+
+/// Identity of the image a scheme produces for a given wallpaper: the palette
+/// that drives the conversion plus the tuning applied on top of it.
+fn scheme_content_key(scheme: &Scheme, tuning: &crate::config::GowallTuning) -> String {
+    format!(
+        "{}:{}:{}",
+        scheme.slug,
+        scheme.palette_hash(),
+        tuning.fingerprint()
+    )
+}
+
+/// Identity of an image that is copied verbatim: its path plus the parts of
+/// its metadata that change when the file is replaced.
+fn source_content_key(path: &Path) -> String {
+    let (mtime, size) = std::fs::metadata(path)
+        .map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            (mtime, m.len())
+        })
+        .unwrap_or((0, 0));
+    format!("{}:{mtime}:{size}", path.to_string_lossy())
+}
+
 /// Derive the output wallpaper path from the source filename so that switching
 /// wallpapers always produces a different URI, forcing GNOME to reload the texture.
-fn output_wallpaper_path(source: &Path, config: &Config) -> PathBuf {
+///
+/// The name carries a digest of the *content* that will be written, not just
+/// of the source file. Re-applying a different scheme to the same wallpaper
+/// produces a different image but would otherwise reuse the same file name —
+/// and therefore the same `picture-uri`. GNOME would keep showing the old
+/// image, and wallpaper-reactive extensions (ChromaLeon, and anything else
+/// watching `org.gnome.desktop.background`) would not be notified at all,
+/// because the GSettings value never changed.
+///
+/// The extension follows the source file: gowall preserves the input format,
+/// so writing the output as `.png` would produce a JPEG with a lying name.
+fn output_wallpaper_path(source: &Path, content_key: &str, config: &Config) -> PathBuf {
     let stem = source
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("wallpaper");
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| !e.is_empty())
+        .unwrap_or("png");
+    let digest = short_digest(content_key);
     config
         .output_wallpaper_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join(format!("current-{stem}.png"))
+        .join(format!("current-{stem}-{digest}.{ext}"))
+}
+
+/// Copy `src` over `dst` atomically.
+///
+/// `dst` is the file GNOME is currently displaying, and wallpaper-reactive
+/// extensions may read it at any moment. Copying in place exposes a truncated
+/// image to those readers — a reader that trips over the short read can wedge
+/// the extension that spawned it. Writing a sibling temp file and renaming it
+/// over the target swaps the inode atomically, so an in-flight reader keeps
+/// the old, complete file.
+async fn atomic_copy(src: &Path, dst: &Path) -> Result<()> {
+    let parent = dst.parent().unwrap_or_else(|| Path::new("."));
+    tokio::fs::create_dir_all(parent).await?;
+    let name = dst
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("wallpaper");
+    let tmp = parent.join(format!(".{name}.{}.tmp", std::process::id()));
+
+    if let Err(e) = tokio::fs::copy(src, &tmp).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(e.into());
+    }
+    if let Err(e) = tokio::fs::rename(&tmp, dst).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Drop stale `current-*` outputs from the output directory, keeping the
+/// newest `OUTPUT_WALLPAPERS_KEPT` of them (the current one always stays).
+fn prune_output_wallpapers(dir: &Path, current: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let path = e.path();
+            if !path.is_file() {
+                return None;
+            }
+            if !path.file_name()?.to_str()?.starts_with("current-") {
+                return None;
+            }
+            let mtime = e.metadata().ok()?.modified().ok()?;
+            Some((mtime, path))
+        })
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in files.into_iter().skip(OUTPUT_WALLPAPERS_KEPT) {
+        if path != current {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Run the `on_wallpaper_apply` hook, after giving wallpaper-reactive
+/// consumers a moment to catch up with the new wallpaper.
+///
+/// Extensions such as ChromaLeon watch `org.gnome.desktop.background` and
+/// re-derive their colours asynchronously. A hook that fires immediately
+/// would read the *previous* accent, so the settle window is what makes the
+/// "wallpaper changed -> theme followed" chain work end to end.
+async fn run_wallpaper_hook(config: &Config, envs: &[(&str, String)]) {
+    let Some(cmd) = config.hooks.on_wallpaper_apply.as_deref() else {
+        return;
+    };
+    if cmd.trim().is_empty() {
+        return;
+    }
+    if config.wallpaper_settle_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(config.wallpaper_settle_ms)).await;
+    }
+    hooks::run(Some(cmd), envs).await;
 }
 
 /// Run the full scheme-switch pipeline.
@@ -55,7 +192,13 @@ pub async fn apply_scheme(
         let _ = status_tx.send("[ converting wallpaper... ]".to_string());
     }
     let output_wall = source_wallpaper
-        .map(|s| output_wallpaper_path(s, config))
+        .map(|s| {
+            output_wallpaper_path(
+                s,
+                &scheme_content_key(scheme, &config.gowall_tuning),
+                config,
+            )
+        })
         .unwrap_or_else(|| config.output_wallpaper_path.clone());
 
     if let Some(source) = source_wallpaper {
@@ -73,7 +216,11 @@ pub async fn apply_scheme(
             wallpaper_cache::ensure_cached(scheme, &config.gowall_tuning, &cache_dir, source)
                 .await?;
         debug!("cache ready: {}", cached.display());
-        tokio::fs::copy(&cached, &output_wall).await?;
+        atomic_copy(&cached, &output_wall).await?;
+        prune_output_wallpapers(
+            output_wall.parent().unwrap_or_else(|| Path::new(".")),
+            &output_wall,
+        );
     }
 
     // Sync custom scheme into tinty's own custom-schemes dir so `tinty apply`
@@ -192,15 +339,20 @@ async fn apply_scheme_gowall_only(
     let cached =
         wallpaper_cache::ensure_cached(scheme, &config.gowall_tuning, &cache_dir, source).await?;
 
-    let output = output_wallpaper_path(source, config);
-    tokio::fs::copy(&cached, &output).await?;
+    let output = output_wallpaper_path(
+        source,
+        &scheme_content_key(scheme, &config.gowall_tuning),
+        config,
+    );
+    atomic_copy(&cached, &output).await?;
+    prune_output_wallpapers(output.parent().unwrap_or_else(|| Path::new(".")), &output);
 
     let _ = status_tx.send("[ setting wallpaper... ]".to_string());
     gnome.set_wallpaper(&output).await?;
 
     let mut envs = scheme_envs(scheme, Some(&output), &config.gowall_tuning);
     envs.push(("GNOMAD_GOWALL_ONLY", "1".to_string()));
-    hooks::run(config.hooks.on_wallpaper_apply.as_deref(), &envs).await;
+    run_wallpaper_hook(config, &envs).await;
 
     Ok(output)
 }
@@ -237,10 +389,13 @@ pub async fn apply_wallpaper(
     status_tx: watch::Sender<String>,
 ) -> Result<PathBuf> {
     if !config.wallpaper_features_enabled() {
-        return Ok(output_wallpaper_path(wallpaper, config));
+        return Ok(output_wallpaper_path(
+            wallpaper,
+            &source_content_key(wallpaper),
+            config,
+        ));
     }
     let gnome = gnome::GnomeInterface::new().await?;
-    let output = output_wallpaper_path(wallpaper, config);
 
     if let Some(scheme) = active_scheme {
         let cache_dir = wallpaper_cache::scheme_cache_dir(
@@ -248,6 +403,11 @@ pub async fn apply_wallpaper(
             scheme,
             &config.wallpaper_dir,
             &config.gowall_tuning,
+        );
+        let output = output_wallpaper_path(
+            wallpaper,
+            &scheme_content_key(scheme, &config.gowall_tuning),
+            config,
         );
         let cached_already =
             wallpaper_cache::is_cached(wallpaper, &cache_dir, scheme, &config.gowall_tuning);
@@ -262,17 +422,31 @@ pub async fn apply_wallpaper(
         let cached =
             wallpaper_cache::ensure_cached(scheme, &config.gowall_tuning, &cache_dir, wallpaper)
                 .await?;
-        tokio::fs::copy(&cached, &output).await?;
+        atomic_copy(&cached, &output).await?;
+        prune_output_wallpapers(output.parent().unwrap_or_else(|| Path::new(".")), &output);
+        finish_wallpaper(&gnome, &output, config, status_tx, active_scheme).await
     } else {
+        let output = output_wallpaper_path(wallpaper, &source_content_key(wallpaper), config);
         let _ = status_tx.send("[ preparing wallpaper... ]".to_string());
-        tokio::fs::copy(wallpaper, &output).await?;
+        atomic_copy(wallpaper, &output).await?;
+        prune_output_wallpapers(output.parent().unwrap_or_else(|| Path::new(".")), &output);
+        finish_wallpaper(&gnome, &output, config, status_tx, active_scheme).await
     }
+}
 
+/// Set the wallpaper and run the `on_wallpaper_apply` hook.
+async fn finish_wallpaper(
+    gnome: &gnome::GnomeInterface,
+    output: &Path,
+    config: &Config,
+    status_tx: watch::Sender<String>,
+    active_scheme: Option<&Scheme>,
+) -> Result<PathBuf> {
     let _ = status_tx.send("[ setting wallpaper... ]".to_string());
-    gnome.set_wallpaper(&output).await?;
+    gnome.set_wallpaper(output).await?;
 
     let envs = if let Some(scheme) = active_scheme {
-        scheme_envs(scheme, Some(&output), &config.gowall_tuning)
+        scheme_envs(scheme, Some(output), &config.gowall_tuning)
     } else {
         vec![
             ("GNOMAD_WALLPAPER_PATH", output.display().to_string()),
@@ -280,9 +454,9 @@ pub async fn apply_wallpaper(
             ("GNOMAD_GOWALL_TUNING", config.gowall_tuning.fingerprint()),
         ]
     };
-    hooks::run(config.hooks.on_wallpaper_apply.as_deref(), &envs).await;
+    run_wallpaper_hook(config, &envs).await;
 
-    Ok(output)
+    Ok(output.to_path_buf())
 }
 
 #[cfg(test)]
@@ -846,7 +1020,13 @@ gowall_only = true
             .await
             .unwrap();
 
-        assert_eq!(output, env.root.join("data/out/current-space name.png"));
+        // The output name keeps the source's stem and extension, and gains a
+        // digest of the converted content.
+        let out_name = output.file_name().unwrap().to_str().unwrap().to_string();
+        assert!(
+            out_name.starts_with("current-space name-") && out_name.ends_with(".png"),
+            "unexpected output name: {out_name}"
+        );
         assert!(output.exists());
         let calls = env.calls();
         assert!(!calls.contains("~/.local"), "calls:\n{calls}");
@@ -858,8 +1038,84 @@ gowall_only = true
         assert!(
             picture_calls
                 .iter()
-                .all(|line| line.contains("current-space%20name.png")),
+                .all(|line| line.contains("current-space%20name-")),
             "calls:\n{calls}"
         );
+    }
+
+    /// The wallpaper URI has to change whenever the *content* changes, not
+    /// only when the source wallpaper changes. Wallpaper-reactive extensions
+    /// (ChromaLeon) only react to a `picture-uri` whose value actually
+    /// changed, so reusing one file name for every scheme would leave them
+    /// with the previous theme.
+    #[tokio::test]
+    #[serial]
+    async fn a_different_scheme_yields_a_different_wallpaper_uri() {
+        let env = TestEnv::new();
+        let mut config = env.config();
+        config.wallpaper_enabled = true;
+        config.gowall_only = true;
+        config.output_wallpaper_path = env.root.join("data/out/current-wallpaper.png");
+        std::fs::create_dir_all(env.root.join("data/out")).unwrap();
+        std::fs::create_dir_all(config.wallpaper_dir.clone()).unwrap();
+        let source = config.wallpaper_dir.join("wall.png");
+        std::fs::write(&source, b"fake-image").unwrap();
+
+        let scheme_a = test_scheme();
+        let mut scheme_b = test_scheme();
+        scheme_b.slug = "other-scheme".to_string();
+        scheme_b.base07 = "#ff00ff".to_string();
+
+        let (tx, _rx) = watch::channel(String::new());
+        let out_a = apply_scheme(&scheme_a, &config, Some(&source), tx.clone())
+            .await
+            .unwrap();
+        let out_b = apply_scheme(&scheme_b, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        assert_ne!(
+            out_a, out_b,
+            "the wallpaper URI must change with the palette"
+        );
+        assert!(out_a.exists() && out_b.exists());
+    }
+
+    /// The output file is written atomically: a reader that opens the old
+    /// file keeps the old, complete image instead of seeing a truncated one.
+    #[tokio::test]
+    #[serial]
+    async fn the_wallpaper_output_is_replaced_atomically() {
+        let env = TestEnv::new();
+        let src = env.root.join("src.bin");
+        let dst = env.root.join("out/current.bin");
+        std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+        std::fs::write(&src, b"new-content").unwrap();
+        std::fs::write(&dst, b"old-content").unwrap();
+
+        atomic_copy(&src, &dst).await.unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new-content");
+        // No temp files left behind.
+        let leftovers: Vec<_> = std::fs::read_dir(dst.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "leftover temp files: {leftovers:?}");
+    }
+
+    /// The output keeps the source's extension: gowall preserves the input
+    /// format, so a `.jpg` source must not end up as a JPEG named `.png`.
+    #[tokio::test]
+    #[serial]
+    async fn the_wallpaper_output_keeps_the_source_extension() {
+        let env = TestEnv::new();
+        let config = env.config();
+        let source = Path::new("/tmp/Pictures/photo.jpg");
+        let out = output_wallpaper_path(source, "key", &config);
+        let name = out.file_name().unwrap().to_str().unwrap();
+        assert!(name.ends_with(".jpg"), "unexpected output name: {name}");
     }
 }

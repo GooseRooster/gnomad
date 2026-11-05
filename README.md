@@ -234,6 +234,7 @@ adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integ
 paperwm_enabled = false          # set to true to enable PaperWM integration
 slideshow_static_secs = 3600     # seconds each wallpaper is shown before crossfading
 slideshow_transition_secs = 1800 # seconds each crossfade lasts
+wallpaper_settle_ms = 1500      # settle window before the on_wallpaper_apply hook runs
 
 [gowall_tuning]
 hue_shift = 0            # degrees (-180..180)
@@ -268,6 +269,7 @@ A leading `~` or `~/` in any path value is expanded to the current user's home d
 | `paperwm_enabled` | `false` | When `true`, themes PaperWM (workspace colours, minimap, clone shade) to match the active scheme; requires the PaperWM extension to be installed |
 | `slideshow_static_secs` | `3600` | How long each wallpaper is displayed (in seconds) before the crossfade begins |
 | `slideshow_transition_secs` | `1800` | Duration of each crossfade transition in seconds. GNOME Shell's compositor updates wallpaper opacity at most once per second, so transitions shorter than ~60 s will appear choppy. Long values (≥1800 s) make each opacity step imperceptible. |
+| `wallpaper_settle_ms` | `1500` | Milliseconds to wait after the wallpaper is set before the `on_wallpaper_apply` hook runs. Wallpaper-reactive extensions (ChromaLeon and friends) re-derive their colours asynchronously; without a settle window the hook would read the *previous* accent. Only costs anything when a wallpaper hook is configured. Set to `0` to run the hook immediately. |
 
 The wallpaper directory can also be changed at runtime with `[d]` in the wallpaper panel.
 
@@ -291,6 +293,54 @@ on_wallpaper_batch_convert = "/usr/bin/gsettings set org.gnome.shell.extensions.
 | `on_scheme_apply` | After a full scheme switch completes successfully | `GNOMAD_SCHEME_SLUG`, `GNOMAD_SCHEME_NAME`, `GNOMAD_SCHEME_SYSTEM` (`base16`/`base24`), `GNOMAD_SCHEME_VARIANT` (empty if unset), `GNOMAD_WALLPAPER_PATH` (empty if wallpapers disabled) |
 | `on_wallpaper_apply` | After a standalone wallpaper switch, or after a scheme apply in gowall-only mode | `GNOMAD_WALLPAPER_PATH`, `GNOMAD_SCHEME_SLUG` (empty if no active scheme), `GNOMAD_SCHEME_NAME`, `GNOMAD_SCHEME_SYSTEM`, `GNOMAD_SCHEME_VARIANT`, `GNOMAD_GOWALL_TUNING`, and `GNOMAD_GOWALL_ONLY=1` in gowall-only mode |
 | `on_wallpaper_batch_convert` | After `[c]`/`[Shift+C]` batch-converts a wallpaper directory, and after `[s]` creates a slideshow (which batch-converts internally) | `GNOMAD_SCHEME_SLUG`, `GNOMAD_CACHE_DIR` (the per-scheme cache directory, now populated), `GNOMAD_WALLPAPER_COUNT` |
+
+### Chaining to a wallpaper-reactive theme (ChromaLeon)
+
+GNOME Shell extensions that theme the desktop from the wallpaper — ChromaLeon is
+the obvious one — watch `org.gnome.desktop.background` and re-derive their
+colours when `picture-uri` changes. gnomad participates in that by writing the
+converted wallpaper under a **new URI every time the content changes**, so the
+extension always sees a change:
+
+- the output file name embeds a digest of the palette and tuning that produced
+  it, so applying a *different scheme* to the *same wallpaper* still changes the
+  URI (re-using one name would leave the extension on the old colours);
+- the file is replaced atomically (temp file + rename), so an extension that
+  reads the wallpaper while gnomad writes it never sees a truncated image;
+- the file keeps the source's extension, because gowall preserves the input
+  format.
+
+To let such an extension drive *your* terminal theme as well, wire the bridge
+into the wallpaper hook:
+
+```toml
+[hooks]
+on_wallpaper_apply = "/home/user/.local/bin/chromaleon_tinty"
+```
+
+The hook runs `wallpaper_settle_ms` after the wallpaper has been set, which
+gives the extension time to publish its new accent before the bridge reads it.
+
+> A wallpaper-reactive extension only rewrites its stylesheets when the accent
+> it derives actually changes. A gowall-converted wallpaper is already
+> recoloured to the scheme's palette, so the derived accent barely moves from
+> image to image — and the extension may then never react at all. That is a
+> property of the extension, not of gnomad; the hook above is the way to make
+> the chain deterministic.
+
+### ChromaLeon → tinty bridge
+
+[`assets/chromaleon-bridge/`](assets/chromaleon-bridge/) is a ready-made
+implementation of that bridge for [ChromaLeon](https://github.com/Fabito02/ChromaLeon):
+it reads ChromaLeon's accent, extracts the wallpaper's swatches, resolves the
+shell's actual surface and writes a tinted8 scheme for tinty. It ships with a
+watcher for wallpaper and light/dark changes, plus an installer:
+
+```sh
+cd assets/chromaleon-bridge && ./install.sh
+```
+
+See its [README](assets/chromaleon-bridge/README.md) for the details.
 
 ---
 

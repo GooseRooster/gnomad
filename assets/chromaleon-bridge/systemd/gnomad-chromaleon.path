@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch ChromaLeon's generated stylesheets for changes
+
+[Path]
+PathModified=%h/.cache/chromaleon/chromaleon-shell.css
+PathModified=%h/.cache/chromaleon/chromaleon-shell-dark.css
+Unit=gnomad-chromaleon.service
+
+[Install]
+WantedBy=default.target

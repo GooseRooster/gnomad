@@ -1,0 +1,6 @@
+[Unit]
+Description=Generate and apply the ChromaLeon tinted8 scheme
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/chromaleon_tinty --force

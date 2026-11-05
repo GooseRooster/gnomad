@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+# Long-running companion to chromaleon_tinty: re-derive the tinted8 scheme
+# whenever GNOME's color-scheme key or the wallpaper changes.
+#
+# Two triggers:
+#
+#   * color-scheme — the scheme variant follows the desktop light/dark toggle
+#     even when ChromaLeon does not rewrite its CSS.
+#   * the background picture-uri — the palette follows the wallpaper. This is
+#     the trigger that matters for gnomad's gowall-only mode: gowall already
+#     recolours the wallpaper to the scheme's palette, so the accent
+#     ChromaLeon derives from it barely moves and ChromaLeon often does not
+#     rewrite its stylesheets at all.
+#
+# The generator is looked up next to this script, so the pair can be
+# symlinked into ~/.local/bin as a unit.
+
+_self="$0"
+if command -v readlink >/dev/null 2>&1; then
+  _resolved="$(readlink -f "$_self" 2>/dev/null || true)"
+  if [ -n "$_resolved" ]; then
+    _self="$_resolved"
+  fi
+fi
+script_dir="$(CDPATH= cd -- "$(dirname -- "$_self")" && pwd)"
+generator="$script_dir/chromaleon_tinty"
+
+if [ ! -x "$generator" ]; then
+  echo "chromaleon_tinty_watch: $generator is missing" >&2
+  exit 1
+fi
+
+# stdbuf -oL keeps dconf's output line-buffered through the pipe.
+stdbuf -oL dconf watch /org/gnome/desktop/interface/color-scheme | while IFS= read -r _line; do
+  "$generator" || true
+done &
+stdbuf -oL dconf watch /org/gnome/desktop/background | while IFS= read -r _line; do
+  "$generator" || true
+done &
+wait
