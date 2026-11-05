@@ -430,7 +430,11 @@ mod tests {
     #[serial]
     async fn snapshot_wallpaper_panel() {
         let env = TestEnv::new();
-        let config = snapshot_config(&env, true, true);
+        let mut config = snapshot_config(&env, true, true);
+        // The panel title renders the wallpaper directory. Use a fixed display
+        // path (it is not read here) so the box width/dash layout does not
+        // depend on the temp root.
+        config.wallpaper_dir = PathBuf::from("/tmp/gnomad-test-wallpapers");
         let alpha = env.wallpaper("alpha.jpg");
         let beta = env.wallpaper("beta.jpg");
 
@@ -443,10 +447,7 @@ mod tests {
         harness.send(KeyCode::Tab).await;
         harness.draw();
 
-        let screen = harness
-            .snapshot_screen()
-            .replace(env.root.to_str().unwrap(), "[TMP]");
-        insta::assert_snapshot!("wallpaper_panel", screen);
+        insta::assert_snapshot!("wallpaper_panel", harness.snapshot_screen());
     }
 
     #[tokio::test]

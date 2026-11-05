@@ -71,8 +71,9 @@ live GNOME session:
   `GNOMAD_DISABLE_IMAGE_PREVIEW=1`; preview state/paths are tested separately.
 - `insta` snapshot tests compare the main screens against checked-in `.snap`
   files in `src/snapshots/`. Snapshots use `TestApp::snapshot_screen()` so
-  trailing blank-cell padding does not create churn; temp paths are normalised
-  before assertion. Review intentional layout changes with `cargo insta review`.
+  trailing blank-cell padding does not create churn; surfaces that render
+  filesystem paths use a fixed display path so border layout is deterministic
+  across temp roots. Review intentional layout changes with `cargo insta review`.
 - Pipeline tests run the real orchestrators against the fake commands and
   assert filesystem side effects, cache manifests, full-mode writes, hook
   environment variables, batch partial failures, and the gowall-only invariants.

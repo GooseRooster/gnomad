@@ -1,9 +1,9 @@
 ---
 source: src/test_support.rs
-expression: screen
+expression: harness.snapshot_screen()
 ---
  gnomad — Wallpapers  [gowall-only]  [Tab] Switch panel
-┌ WALLPAPERS — [TMP]/wallpapers ───────────┐┌ PREVIEW → Test Scheme ─────────────────────────────────────────┐
+┌ WALLPAPERS — /tmp/gnomad-test-wallpapers ──────────┐┌ PREVIEW → Test Scheme ─────────────────────────────────────────┐
 │> [raw]    alpha.jpg                                ││                                                                │
 │  [raw]    beta.jpg                                 ││  alpha.jpg                                                     │
 │                                                    ││                                                                │
