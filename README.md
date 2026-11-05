@@ -340,7 +340,11 @@ watcher for wallpaper and light/dark changes, plus an installer:
 cd assets/chromaleon-bridge && ./install.sh
 ```
 
-See its [README](assets/chromaleon-bridge/README.md) for the details.
+It is entirely optional and ChromaLeon-specific: the installer refuses to run
+without the extension, and the generator exits without doing anything if
+ChromaLeon is not installed and enabled — so the units it installs never take
+over a theme you did not ask for. See its
+[README](assets/chromaleon-bridge/README.md) for the details.
 
 ---
 

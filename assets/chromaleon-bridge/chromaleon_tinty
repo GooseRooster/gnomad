@@ -46,10 +46,45 @@ CHROMALEON_PALETTE="${CHROMALEON_PALETTE:-$script_dir/chromaleon_palette.py}"
 CHROMALEON_PIXELS="${CHROMALEON_PIXELS:-$script_dir/chromaleon_pixels.js}"
 export CHROMALEON_PALETTE CHROMALEON_PIXELS
 
+home="${HOME:?HOME is not set}"
+
+# Is ChromaLeon there to be bridged?
+#
+# The bridge reads ChromaLeon's accent and resolves ChromaLeon's shell
+# surface — without the extension there is nothing to read, and the script
+# would otherwise invent an accent and apply a scheme nobody asked for. So:
+# no ChromaLeon, no scheme. This is what keeps the systemd units harmless on
+# a machine that does not use the extension.
+#
+# CHROMALEON_EXTENSION_UUID overrides the uuid (forks and repacks).
+chromaleon_uuid="${CHROMALEON_EXTENSION_UUID:-user-accent-colors@fabito02}"
+
+chromaleon_available() {
+  if command -v gnome-extensions >/dev/null 2>&1; then
+    info="$(gnome-extensions info "$chromaleon_uuid" 2>/dev/null || true)"
+    if [ -n "$info" ]; then
+      # The tool answered, so the extension is known — trust its verdict.
+      # "Enabled: No" (installed but switched off) is as good as absent.
+      printf '%s\n' "$info" | grep -q 'Enabled: Yes'
+      return
+    fi
+  fi
+
+  # No shell session, or no extension tool: fall back to ChromaLeon's own
+  # cache, which only exists once the extension has run.
+  [ -f "$home/.cache/chromaleon/chromaleon-shell.css" ] ||
+    [ -f "$home/.cache/chromaleon/chromaleon-shell-dark.css" ]
+}
+
+if ! chromaleon_available; then
+  # Not an error: the units fire on every wallpaper change, and a machine
+  # without ChromaLeon simply has nothing to bridge.
+  exit 0
+fi
+
 # Give ChromaLeon a moment to finish its three-file write burst.
 sleep 1
 
-home="${HOME:?HOME is not set}"
 data_dir="${XDG_DATA_HOME:-$home/.local/share}/tinted-theming/tinty"
 scheme_dir="$data_dir/custom-schemes/tinted8"
 scheme_file="$scheme_dir/chromaleon.yaml"

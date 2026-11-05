@@ -56,6 +56,23 @@ previous wallpaper's palette.
 - `gjs` (recommended — exact ChromaLeon pixel extraction) or `magick`
   (fallback; the swatches differ slightly)
 
+## It stays out of the way
+
+The bridge is **opt-in and ChromaLeon-specific**. Nothing here runs unless you
+install it, and once installed it checks that ChromaLeon is actually there:
+
+- `install.sh` refuses to install anything if ChromaLeon is missing or
+  switched off, and says so;
+- `chromaleon_tinty` exits immediately — no scheme written, no `tinty apply` —
+  when ChromaLeon is not installed and enabled. It never invents an accent.
+
+So the systemd units are harmless on a machine that does not use the
+extension: the wallpaper watcher fires, the generator declines, nothing
+changes.
+
+The Nix package is inert on its own — it is a set of scripts. What activates
+it is the units around it (below, or your own).
+
 ## Install
 
 ```sh
@@ -108,6 +125,7 @@ time the bridge reads it.
 |---|---|---|
 | `CHROMALEON_DEPTH` | `1` | 0 = exact shell-surface match, 3 = pronounced separation |
 | `CHROMALEON_SURFACE_TARGET` | `auto` | `auto`, `panel` or `menu` — which shell surface to anchor on |
+| `CHROMALEON_EXTENSION_UUID` | `user-accent-colors@fabito02` | the ChromaLeon extension to read |
 | `CHROMALEON_PALETTE` | next to the script | path to `chromaleon_palette.py` |
 | `CHROMALEON_PIXELS` | next to the script | path to `chromaleon_pixels.js` |
 

@@ -38,6 +38,32 @@ if [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
+# The bridge exists to carry ChromaLeon's colours into tinty. Without the
+# extension there is nothing to read, and the units would fire on every
+# wallpaper change for nothing. Refuse rather than leave a unit that does
+# nothing on the user's machine.
+chromaleon_uuid="${CHROMALEON_EXTENSION_UUID:-user-accent-colors@fabito02}"
+chromaleon_available() {
+  if command -v gnome-extensions >/dev/null 2>&1; then
+    info="$(gnome-extensions info "$chromaleon_uuid" 2>/dev/null || true)"
+    if [ -n "$info" ]; then
+      printf '%s\n' "$info" | grep -q 'Enabled: Yes'
+      return
+    fi
+  fi
+  [ -f "$home/.cache/chromaleon/chromaleon-shell.css" ] ||
+    [ -f "$home/.cache/chromaleon/chromaleon-shell-dark.css" ]
+}
+
+if ! chromaleon_available; then
+  echo "ChromaLeon is not installed and enabled — the bridge has nothing to read." >&2
+  echo "Install it first:" >&2
+  echo "  https://extensions.gnome.org/extension/4000/chromaleon/" >&2
+  echo "Nothing was installed." >&2
+  exit 1
+fi
+echo "ChromaLeon: found."
+
 echo "checking dependencies..."
 missing=""
 for dep in dconf flock python3 tinty; do
