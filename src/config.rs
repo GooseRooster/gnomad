@@ -2,6 +2,100 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Palette pre-processing applied before gowall converts an image.
+///
+/// gowall has no conversion-strength knobs of its own, so gnomad transforms
+/// the palette in OKLCH and blends the converted image back toward the
+/// original according to `intensity`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GowallTuning {
+    /// Hue rotation in degrees (-180..=180).
+    #[serde(default)]
+    pub hue_shift: i32,
+    /// Chroma/saturation scale, 100 = unchanged (0..=200).
+    #[serde(default = "default_tuning_100")]
+    pub saturation: i32,
+    /// Lightness scale, 100 = unchanged (0..=200).
+    #[serde(default = "default_tuning_100")]
+    pub lightness: i32,
+    /// Contrast around OKLab L=0.5 (-100..=100).
+    #[serde(default)]
+    pub contrast: i32,
+    /// Lightness gamma, 100 = unchanged (50..=200).
+    #[serde(default = "default_tuning_100")]
+    pub gamma: i32,
+    /// Blend the converted image back toward the original: 0 = original,
+    /// 100 = full conversion.
+    #[serde(default = "default_tuning_100")]
+    pub intensity: i32,
+    /// Keep low-chroma colours neutral when rotating hue / scaling chroma.
+    #[serde(default = "default_true")]
+    pub preserve_neutrals: bool,
+}
+
+impl Default for GowallTuning {
+    fn default() -> Self {
+        Self {
+            hue_shift: 0,
+            saturation: 100,
+            lightness: 100,
+            contrast: 0,
+            gamma: 100,
+            intensity: 100,
+            preserve_neutrals: true,
+        }
+    }
+}
+
+impl GowallTuning {
+    /// True when the tuning has no effect on the palette or output image.
+    pub fn is_identity(&self) -> bool {
+        self.hue_shift == 0
+            && self.saturation == 100
+            && self.lightness == 100
+            && self.contrast == 0
+            && self.gamma == 100
+            && self.intensity == 100
+    }
+
+    /// Stable, dependency-free fingerprint used in cache keys.
+    pub fn fingerprint(&self) -> String {
+        let material = format!(
+            "{}|{}|{}|{}|{}|{}|{}",
+            self.hue_shift,
+            self.saturation,
+            self.lightness,
+            self.contrast,
+            self.gamma,
+            self.intensity,
+            self.preserve_neutrals,
+        );
+        let mut h: u64 = 14695981039346656037;
+        for b in material.bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(1099511628211);
+        }
+        format!("{h:016x}")
+    }
+
+    /// Clamp all fields to their supported ranges.
+    pub fn clamped(&self) -> Self {
+        Self {
+            hue_shift: self.hue_shift.clamp(-180, 180),
+            saturation: self.saturation.clamp(0, 200),
+            lightness: self.lightness.clamp(0, 200),
+            contrast: self.contrast.clamp(-100, 100),
+            gamma: self.gamma.clamp(50, 200),
+            intensity: self.intensity.clamp(0, 100),
+            preserve_neutrals: self.preserve_neutrals,
+        }
+    }
+}
+
+fn default_tuning_100() -> i32 {
+    100
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub wallpaper_dir: PathBuf,
@@ -22,6 +116,13 @@ pub struct Config {
     pub follow_user_scheme_type: bool,
     #[serde(default)]
     pub wallpaper_enabled: bool,
+    /// Gowall-only mode: only convert + set wallpapers. Tinty, GTK CSS,
+    /// GNOME Shell CSS, PaperWM and Steam integration are left untouched.
+    #[serde(default)]
+    pub gowall_only: bool,
+    /// Palette pre-processing and conversion intensity for gowall.
+    #[serde(default)]
+    pub gowall_tuning: GowallTuning,
     #[serde(default)]
     pub adwaita_steam_enabled: bool,
     /// Theme PaperWM (workspace bar, minimap, workspace colours) to match the
@@ -93,6 +194,22 @@ pub fn data_dir() -> PathBuf {
         .join("gnomad")
 }
 
+/// Disposable cache root (managed gowall HOME + downscaled previews).
+pub fn cache_dir() -> PathBuf {
+    dirs::cache_dir().unwrap_or_else(data_dir).join("gnomad")
+}
+
+/// Gnomad-owned gowall HOME/output tree. Keeping gowall's CLUT cache here
+/// prevents slider tuning from littering `~/Pictures/gowall/cluts`.
+pub fn gowall_cache_dir() -> PathBuf {
+    cache_dir().join("gowall")
+}
+
+/// Downscaled conversion previews.
+pub fn preview_cache_dir() -> PathBuf {
+    cache_dir().join("previews")
+}
+
 pub fn config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("~/.config"))
@@ -101,6 +218,12 @@ pub fn config_path() -> PathBuf {
 }
 
 impl Config {
+    /// Wallpaper features are active in full mode only when opted in, but
+    /// gowall-only mode is inherently a wallpaper workflow.
+    pub fn wallpaper_features_enabled(&self) -> bool {
+        self.wallpaper_enabled || self.gowall_only
+    }
+
     pub fn load() -> Result<Self> {
         let path = config_path();
         if !path.exists() {
@@ -134,11 +257,35 @@ impl Config {
             wallpaper_cache_dir: default_wallpaper_cache_dir(),
             follow_user_scheme_type: true,
             wallpaper_enabled: false,
+            gowall_only: false,
+            gowall_tuning: GowallTuning::default(),
             adwaita_steam_enabled: false,
             paperwm_enabled: false,
             slideshow_static_secs: default_slideshow_static_secs(),
             slideshow_transition_secs: default_slideshow_transition_secs(),
             hooks: HooksConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gowall_only_implies_wallpaper_features() {
+        let mut config = Config::default_config();
+        assert!(!config.wallpaper_features_enabled());
+        config.gowall_only = true;
+        assert!(config.wallpaper_features_enabled());
+    }
+
+    #[test]
+    fn missing_tuning_fields_default_to_identity() {
+        let tuning: GowallTuning = serde_yaml::from_str("hue_shift: 12\n").unwrap();
+        assert_eq!(tuning.hue_shift, 12);
+        assert_eq!(tuning.saturation, 100);
+        assert_eq!(tuning.intensity, 100);
+        assert!(tuning.preserve_neutrals);
     }
 }

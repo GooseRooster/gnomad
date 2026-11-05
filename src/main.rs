@@ -15,7 +15,11 @@ use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
-#[command(name = "gnomad", about = "GNOME colour scheme and wallpaper manager", version)]
+#[command(
+    name = "gnomad",
+    about = "GNOME colour scheme and wallpaper manager",
+    version
+)]
 struct Cli {
     #[arg(long, help = "Fetch/update schemes and exit")]
     update_schemes: bool,
@@ -30,7 +34,24 @@ struct Cli {
     )]
     populate_json_scheme: bool,
 
-    #[arg(short, long, help = "Enable debug logging (pipeline steps, paths, errors)")]
+    #[arg(
+        long,
+        conflicts_with = "full",
+        help = "Force gowall-only mode for this run (wallpapers only; no tinty/GTK/Shell theming)"
+    )]
+    gowall_only: bool,
+
+    #[arg(
+        long,
+        help = "Force full mode for this run, overriding gowall_only = true in config"
+    )]
+    full: bool,
+
+    #[arg(
+        short,
+        long,
+        help = "Enable debug logging (pipeline steps, paths, errors)"
+    )]
     verbose: bool,
 }
 
@@ -70,12 +91,20 @@ async fn main() -> Result<()> {
     }
 
     let config_existed = config::config_path().exists();
-    let config = Config::load().context("loading config")?;
+    let mut config = Config::load().context("loading config")?;
+    if cli.gowall_only {
+        config.gowall_only = true;
+    } else if cli.full {
+        config.gowall_only = false;
+    }
     if !config_existed {
         if let Err(e) = config.save() {
             eprintln!("gnomad: could not write default config: {e}");
         } else {
-            eprintln!("gnomad: created default config at {}", config::config_path().display());
+            eprintln!(
+                "gnomad: created default config at {}",
+                config::config_path().display()
+            );
         }
     }
 
@@ -87,14 +116,18 @@ async fn main() -> Result<()> {
     // Startup checks
     check_binary("git")?;
     check_binary("gowall")?;
-    check_binary("tinty")?;
+    if !config.gowall_only {
+        check_binary("tinty")?;
+    }
 
     // Ensure data dirs exist
     let data_base = config::data_dir();
     std::fs::create_dir_all(&data_base)?;
-    if config.wallpaper_enabled {
+    if config.wallpaper_features_enabled() {
         std::fs::create_dir_all(&config.wallpaper_cache_dir)?;
     }
+    pipeline::gowall::prune_cluts(64);
+    pipeline::preview::prune_previews(32);
 
     // Clone schemes repo if not present
     if !config.schemes_repo_dir.exists() {
@@ -122,8 +155,8 @@ async fn main() -> Result<()> {
     let gnome = GnomeInterface::new().await?;
     let gnome_color_scheme = gnome.get_color_scheme().await.unwrap_or_default();
 
-    // Warn about missing User Themes extension
-    if !gnome.is_user_themes_enabled().await {
+    // Warn about missing User Themes extension (full mode only)
+    if !config.gowall_only && !gnome.is_user_themes_enabled().await {
         eprintln!(
             "gnomad: WARNING — User Themes extension not detected.\n\
              Shell CSS will be written but won't apply. Enable it with:\n\
@@ -132,12 +165,12 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Warn about Flatpak overrides
+    // Warn about Flatpak overrides (GTK theming is not touched in gowall-only mode)
     let themes_dir = dirs::data_local_dir()
         .unwrap_or_default()
         .join("themes")
         .join(&config.theme_name);
-    if !themes_dir.exists() {
+    if !config.gowall_only && !themes_dir.exists() {
         eprintln!(
             "gnomad: NOTE — Theme directory not yet created. After first use, run:\n\
              flatpak override --user --filesystem=xdg-config/gtk-3.0\n\
@@ -147,13 +180,13 @@ async fn main() -> Result<()> {
     }
 
     // Load schemes
-    let schemes = fetch::load_schemes(
-        &config.schemes_repo_dir,
-        Some(&config.custom_schemes_dir),
-    )
-    .context("loading schemes")?;
+    let schemes = fetch::load_schemes(&config.schemes_repo_dir, Some(&config.custom_schemes_dir))
+        .context("loading schemes")?;
 
     eprintln!("gnomad: loaded {} schemes", schemes.len());
+    if config.gowall_only {
+        eprintln!("gnomad: gowall-only mode — Tinty, GTK and Shell theming disabled");
+    }
 
     // Detect terminal graphics protocol before entering raw mode
     let picker = ratatui_image::picker::Picker::from_query_stdio()
@@ -163,11 +196,15 @@ async fn main() -> Result<()> {
     // Launch TUI
     let mut terminal = ratatui::init();
     let mut app = App::new(config, gnome_color_scheme, picker);
-    app.state.set_schemes(schemes, app.config.follow_user_scheme_type);
+    app.state
+        .set_schemes(schemes, app.config.follow_user_scheme_type);
 
     // Restore last active scheme so wallpaper picker knows which scheme to convert for
     if let Some(ref slug) = app.config.default_scheme.clone() {
-        app.state.active_scheme = app.state.all_schemes.iter()
+        app.state.active_scheme = app
+            .state
+            .all_schemes
+            .iter()
             .find(|s| &s.slug == slug)
             .cloned();
     }
@@ -192,8 +229,8 @@ async fn headless_populate_json_scheme(config: &Config) -> Result<()> {
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("no scheme configured — apply a scheme in gnomad first"))?;
 
-    let scheme = load_scheme_by_slug(slug, config)
-        .with_context(|| format!("finding scheme '{slug}'"))?;
+    let scheme =
+        load_scheme_by_slug(slug, config).with_context(|| format!("finding scheme '{slug}'"))?;
 
     // Fast path: JSON already exists and matches the current scheme name
     if let Ok(json) = std::fs::read_to_string(pipeline::gowall::PALETTE_JSON_PATH) {
@@ -206,15 +243,27 @@ async fn headless_populate_json_scheme(config: &Config) -> Result<()> {
     }
 
     // File missing, unparseable, or stale: regenerate
-    pipeline::gowall::write_palette_json(&scheme)?;
+    pipeline::gowall::write_palette_json(&scheme, &config.gowall_tuning)?;
     println!("ok");
     Ok(())
 }
 
 fn load_scheme_by_slug(slug: &str, config: &Config) -> Result<schemes::types::Scheme> {
     let mut candidates = vec![
-        (config.schemes_repo_dir.join("base16").join(format!("{slug}.yaml")), false),
-        (config.schemes_repo_dir.join("base24").join(format!("{slug}.yaml")), false),
+        (
+            config
+                .schemes_repo_dir
+                .join("base16")
+                .join(format!("{slug}.yaml")),
+            false,
+        ),
+        (
+            config
+                .schemes_repo_dir
+                .join("base24")
+                .join(format!("{slug}.yaml")),
+            false,
+        ),
     ];
     candidates.push((config.custom_schemes_dir.join(format!("{slug}.yaml")), true));
 
@@ -229,18 +278,24 @@ fn load_scheme_by_slug(slug: &str, config: &Config) -> Result<schemes::types::Sc
 }
 
 async fn headless_apply(slug: &str, config: &Config) -> Result<()> {
-    let schemes = fetch::load_schemes(
-        &config.schemes_repo_dir,
-        Some(&config.custom_schemes_dir),
-    )?;
+    let schemes = fetch::load_schemes(&config.schemes_repo_dir, Some(&config.custom_schemes_dir))?;
 
     let scheme = schemes
         .iter()
         .find(|s| s.slug == slug)
         .ok_or_else(|| anyhow::anyhow!("scheme '{slug}' not found"))?;
 
+    let source = if config.gowall_only {
+        match config.last_wallpaper.clone().filter(|p| p.exists()) {
+            Some(p) => Some(p),
+            None => GnomeInterface::new().await?.get_wallpaper().await?,
+        }
+    } else {
+        None
+    };
+
     let (status_tx, _) = tokio::sync::watch::channel(String::new());
-    pipeline::apply_scheme(scheme, config, None, status_tx).await?;
+    pipeline::apply_scheme(scheme, config, source.as_deref(), status_tx).await?;
     println!("Applied scheme: {slug}");
     Ok(())
 }

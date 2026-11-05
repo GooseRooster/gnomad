@@ -60,6 +60,54 @@ pub struct Scheme {
     pub base17: Option<String>,
 }
 
+impl Scheme {
+    /// Stable fingerprint of the palette contents (not just the slug).
+    /// Used to invalidate wallpaper caches when a custom scheme is edited.
+    pub fn palette_hash(&self) -> String {
+        let mut material = String::new();
+        for slot in [
+            &self.base00,
+            &self.base01,
+            &self.base02,
+            &self.base03,
+            &self.base04,
+            &self.base05,
+            &self.base06,
+            &self.base07,
+            &self.base08,
+            &self.base09,
+            &self.base0a,
+            &self.base0b,
+            &self.base0c,
+            &self.base0d,
+            &self.base0e,
+            &self.base0f,
+        ] {
+            material.push_str(slot);
+            material.push('|');
+        }
+        for slot in [
+            &self.base10,
+            &self.base11,
+            &self.base12,
+            &self.base13,
+            &self.base14,
+            &self.base15,
+            &self.base16,
+            &self.base17,
+        ] {
+            material.push_str(slot.as_deref().unwrap_or(""));
+            material.push('|');
+        }
+        let mut h: u64 = 14695981039346656037;
+        for b in material.bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(1099511628211);
+        }
+        format!("{h:016x}")
+    }
+}
+
 // ── YAML deserialization helpers ──────────────────────────────────────────────
 
 #[derive(Deserialize)]

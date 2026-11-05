@@ -38,9 +38,17 @@ action, plus a headless mode for scripting.
                           ├──► GnomeInterface::set_color_scheme   (gsettings)
                           └──► GnomeInterface::reload_shell_theme (gnome-extensions)
 
- pipeline::apply_wallpaper ──► gowall convert (per scheme in wallpaper-cache/)
+ pipeline::apply_wallpaper ──► gowall convert (per scheme in wallpapers/)
                               ──► GnomeInterface::set_wallpaper  (gsettings)
+
+ pipeline::preview ──────────► downscaled gowall conversion (disposable cache)
+                              ──► live CURRENT / PREVIEW panes
 ```
+
+In **gowall-only mode** (`config.gowall_only`), `apply_scheme` short-circuits to
+a wallpaper-only pipeline: convert with gowall, apply the optional intensity
+blend, and set the wallpaper. No Tinty, CSS, Shell, PaperWM or Steam writes
+happen.
 
 The pipeline is two orchestrators (`apply_scheme`, `apply_wallpaper`) over a
 small set of independent modules that each touch one surface. Each module
@@ -69,8 +77,11 @@ YAML parsing lives in `src/schemes/types.rs`; the git plumbing in
 - **gowall** — no published crate or apt package; the binary is a one-shot
   download from GitHub releases. Used to convert source images into the
   scheme's palette. Results are cached per-scheme under
-  `~/.local/share/gnomad/wallpaper-cache/<slug>/` so re-applying the same
-  scheme doesn't re-render.
+  `~/.local/share/gnomad/wallpapers/<slug>-<dirhash>[-<tuning>]/` so
+  re-applying the same scheme doesn't re-render. Gnomad runs gowall with a
+  managed HOME (`~/.cache/gnomad/gowall`) so tuning CLUTs don't pollute the
+  user's `~/Pictures/gowall` cache; the user's `ColorCorrectionBackend`
+  preference is copied into the managed config.
 - **tinty** — published on crates.io; `cargo install --locked` is the cleanest
   install path. Invoked as a subprocess for the terminal palette only; the rest
   of the GTK/Shell surfaces are done in-tree for tighter control over CSS
@@ -91,7 +102,9 @@ YAML parsing lives in `src/schemes/types.rs`; the git plumbing in
 | Cache | Path | Cleared by |
 |---|---|---|
 | Schemes repo | `~/.local/share/gnomad/schemes-repo` | `--update-schemes` does `git pull` |
-| Per-scheme wallpaper conversions | `~/.local/share/gnomad/wallpaper-cache/<slug>/` | Delete the slug dir |
+| Per-scheme wallpaper conversions | `~/.local/share/gnomad/wallpapers/<slug>-<dirhash>[-<tuning>]/` | Delete the scheme/dir |
+| Downscaled previews | `~/.cache/gnomad/previews/` | `preview-*` pruned to 32; temps removed after use |
+| Managed gowall HOME/CLUTs | `~/.cache/gnomad/gowall/` | CLUTs pruned to 64 |
 | Verbose log | `~/.local/share/gnomad/gnomad.log` | Delete the file |
 
 Wallpaper cache is checked before invoking gowall — if a rendered file already

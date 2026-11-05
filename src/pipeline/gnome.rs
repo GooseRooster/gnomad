@@ -128,6 +128,27 @@ impl GnomeInterface {
             .await;
     }
 
+    /// Best-effort current desktop wallpaper path. Prefers the dark variant,
+    /// which is what GNOME uses in dark mode. Returns `None` for slideshow XML
+    /// or non-file values.
+    pub async fn get_wallpaper(&self) -> Result<Option<PathBuf>> {
+        let dark = self
+            .gsettings_get("org.gnome.desktop.background", "picture-uri-dark")
+            .await
+            .unwrap_or_default();
+        let light = self
+            .gsettings_get("org.gnome.desktop.background", "picture-uri")
+            .await
+            .unwrap_or_default();
+
+        let raw = if !dark.trim_matches('\'').is_empty() {
+            dark
+        } else {
+            light
+        };
+        Ok(parse_wallpaper_uri(&raw))
+    }
+
     pub async fn get_color_scheme(&self) -> Result<String> {
         let raw = self
             .gsettings_get("org.gnome.desktop.interface", "color-scheme")
@@ -225,4 +246,49 @@ impl GnomeInterface {
             }
         }
     }
+}
+
+fn parse_wallpaper_uri(raw: &str) -> Option<PathBuf> {
+    let raw = raw.trim().trim_matches('\'');
+    let rest = raw.strip_prefix("file://")?;
+    // file:///path -> /path; tolerate file://host/path by keeping from the
+    // first slash.
+    let rest = if rest.starts_with('/') {
+        rest
+    } else {
+        rest.find('/').map(|i| &rest[i..]).unwrap_or(rest)
+    };
+    let decoded = percent_decode(rest);
+    let path = PathBuf::from(decoded);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    // Slideshows and formats gnomad/gowall cannot preview are not useful as
+    // conversion sources.
+    if !matches!(
+        ext.as_deref(),
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp")
+    ) {
+        return None;
+    }
+    path.exists().then_some(path)
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }

@@ -1,9 +1,12 @@
+pub mod blend;
 pub mod gnome;
 pub mod gowall;
 pub mod gtk_css;
 pub mod hooks;
+pub mod oklab;
 pub mod palette;
 pub mod paperwm;
+pub mod preview;
 pub mod shade;
 pub mod shell_css;
 pub mod slideshow;
@@ -41,30 +44,36 @@ pub async fn apply_scheme(
     source_wallpaper: Option<&Path>,
     status_tx: watch::Sender<String>,
 ) -> Result<PathBuf> {
+    if config.gowall_only {
+        return apply_scheme_gowall_only(scheme, config, source_wallpaper, status_tx).await;
+    }
+
     let gnome = gnome::GnomeInterface::new().await?;
 
     // Step 1: Convert wallpaper with gowall
-    if config.wallpaper_enabled && source_wallpaper.is_some() {
+    if config.wallpaper_features_enabled() && source_wallpaper.is_some() {
         let _ = status_tx.send("[ converting wallpaper... ]".to_string());
     }
     let output_wall = source_wallpaper
-        .map(|s| output_wallpaper_path(s, &config))
+        .map(|s| output_wallpaper_path(s, config))
         .unwrap_or_else(|| config.output_wallpaper_path.clone());
 
     if let Some(source) = source_wallpaper {
-        let cache_dir = wallpaper_cache::scheme_cache_dir(&config.wallpaper_cache_dir, &scheme.slug, &config.wallpaper_dir);
+        let cache_dir = wallpaper_cache::scheme_cache_dir(
+            &config.wallpaper_cache_dir,
+            scheme,
+            &config.wallpaper_dir,
+            &config.gowall_tuning,
+        );
         debug!("wallpaper source: {}", source.display());
         debug!("wallpaper cache dir: {}", cache_dir.display());
         debug!("output wall: {}", output_wall.display());
 
-        let cached = wallpaper_cache::cached_path(source, &cache_dir);
-        if let Some(ref c) = cached {
-            debug!("cache hit: {}", c.display());
-            tokio::fs::copy(c, &output_wall).await?;
-        } else {
-            debug!("cache miss — running gowall");
-            gowall::convert_wallpaper(scheme, source, &output_wall).await?;
-        }
+        let cached =
+            wallpaper_cache::ensure_cached(scheme, &config.gowall_tuning, &cache_dir, source)
+                .await?;
+        debug!("cache ready: {}", cached.display());
+        tokio::fs::copy(&cached, &output_wall).await?;
     }
 
     // Sync custom scheme into tinty's own custom-schemes dir so `tinty apply`
@@ -75,7 +84,7 @@ pub async fn apply_scheme(
 
     // Step 2: Tinty
     let _ = status_tx.send("[ applying tinty scheme... ]".to_string());
-    let scheme_arg = format!("{}-{}", &scheme.system.tag(true), scheme.slug);
+    let scheme_arg = format!("{}-{}", scheme.system.tag(true), scheme.slug);
     debug!("tinty apply: {scheme_arg}");
     tinty::apply_scheme(&scheme_arg).await?;
 
@@ -160,6 +169,65 @@ pub async fn apply_scheme(
     Ok(output_wall)
 }
 
+/// Gowall-only scheme application: convert the current wallpaper and set it.
+/// No tinty, GTK CSS, Shell CSS, PaperWM, Steam CSS, or colour-scheme writes.
+async fn apply_scheme_gowall_only(
+    scheme: &Scheme,
+    config: &Config,
+    source_wallpaper: Option<&Path>,
+    status_tx: watch::Sender<String>,
+) -> Result<PathBuf> {
+    let source = source_wallpaper.ok_or_else(|| {
+        anyhow::anyhow!("no current wallpaper — choose one in the Wallpapers panel first")
+    })?;
+    let gnome = gnome::GnomeInterface::new().await?;
+
+    let cache_dir = wallpaper_cache::scheme_cache_dir(
+        &config.wallpaper_cache_dir,
+        scheme,
+        &config.wallpaper_dir,
+        &config.gowall_tuning,
+    );
+    let _ = status_tx.send("[ converting wallpaper... ]".to_string());
+    let cached =
+        wallpaper_cache::ensure_cached(scheme, &config.gowall_tuning, &cache_dir, source).await?;
+
+    let output = output_wallpaper_path(source, config);
+    tokio::fs::copy(&cached, &output).await?;
+
+    let _ = status_tx.send("[ setting wallpaper... ]".to_string());
+    gnome.set_wallpaper(&output).await?;
+
+    let mut envs = scheme_envs(scheme, Some(&output), &config.gowall_tuning);
+    envs.push(("GNOMAD_GOWALL_ONLY", "1".to_string()));
+    hooks::run(config.hooks.on_wallpaper_apply.as_deref(), &envs).await;
+
+    Ok(output)
+}
+
+fn scheme_envs(
+    scheme: &Scheme,
+    wallpaper: Option<&Path>,
+    tuning: &crate::config::GowallTuning,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("GNOMAD_SCHEME_SLUG", scheme.slug.clone()),
+        ("GNOMAD_SCHEME_NAME", scheme.name.clone()),
+        ("GNOMAD_SCHEME_SYSTEM", scheme.system.tag(true).to_string()),
+        (
+            "GNOMAD_SCHEME_VARIANT",
+            scheme.variant.clone().unwrap_or_default(),
+        ),
+        (
+            "GNOMAD_WALLPAPER_PATH",
+            wallpaper
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        ),
+        ("GNOMAD_GOWALL_TUNING", tuning.fingerprint()),
+    ]
+}
+
 /// Apply a new wallpaper only (no scheme change).
 /// Smart: skips gowall if the wallpaper is already cached for the current scheme.
 pub async fn apply_wallpaper(
@@ -168,43 +236,50 @@ pub async fn apply_wallpaper(
     config: &Config,
     status_tx: watch::Sender<String>,
 ) -> Result<PathBuf> {
-    if !config.wallpaper_enabled {
+    if !config.wallpaper_features_enabled() {
         return Ok(output_wallpaper_path(wallpaper, config));
     }
     let gnome = gnome::GnomeInterface::new().await?;
-    let output = output_wallpaper_path(wallpaper, &config);
+    let output = output_wallpaper_path(wallpaper, config);
 
-    let skip_convert = active_scheme
-        .map(|s| {
-            let cache_dir = wallpaper_cache::scheme_cache_dir(&config.wallpaper_cache_dir, &s.slug, &config.wallpaper_dir);
-            wallpaper_cache::is_cached(wallpaper, &cache_dir)
-        })
-        .unwrap_or(false);
-
-    if skip_convert {
-        let _ = status_tx.send("[ applying wallpaper (cached)... ]".to_string());
-        if let Some(s) = active_scheme {
-            let cache_dir = wallpaper_cache::scheme_cache_dir(&config.wallpaper_cache_dir, &s.slug, &config.wallpaper_dir);
-            if let Some(cached) = wallpaper_cache::cached_path(wallpaper, &cache_dir) {
-                tokio::fs::copy(&cached, &output).await?;
+    if let Some(scheme) = active_scheme {
+        let cache_dir = wallpaper_cache::scheme_cache_dir(
+            &config.wallpaper_cache_dir,
+            scheme,
+            &config.wallpaper_dir,
+            &config.gowall_tuning,
+        );
+        let cached_already =
+            wallpaper_cache::is_cached(wallpaper, &cache_dir, scheme, &config.gowall_tuning);
+        let _ = status_tx.send(
+            if cached_already {
+                "[ applying wallpaper (cached)... ]"
+            } else {
+                "[ converting wallpaper... ]"
             }
-        }
+            .to_string(),
+        );
+        let cached =
+            wallpaper_cache::ensure_cached(scheme, &config.gowall_tuning, &cache_dir, wallpaper)
+                .await?;
+        tokio::fs::copy(&cached, &output).await?;
     } else {
-        let _ = status_tx.send("[ converting wallpaper... ]".to_string());
-        if let Some(scheme) = active_scheme {
-            gowall::convert_wallpaper(scheme, wallpaper, &output).await?;
-        } else {
-            tokio::fs::copy(wallpaper, &output).await?;
-        }
+        let _ = status_tx.send("[ preparing wallpaper... ]".to_string());
+        tokio::fs::copy(wallpaper, &output).await?;
     }
 
     let _ = status_tx.send("[ setting wallpaper... ]".to_string());
     gnome.set_wallpaper(&output).await?;
 
-    let envs = [
-        ("GNOMAD_WALLPAPER_PATH", output.display().to_string()),
-        ("GNOMAD_SCHEME_SLUG", active_scheme.map(|s| s.slug.clone()).unwrap_or_default()),
-    ];
+    let envs = if let Some(scheme) = active_scheme {
+        scheme_envs(scheme, Some(&output), &config.gowall_tuning)
+    } else {
+        vec![
+            ("GNOMAD_WALLPAPER_PATH", output.display().to_string()),
+            ("GNOMAD_SCHEME_SLUG", String::new()),
+            ("GNOMAD_GOWALL_TUNING", config.gowall_tuning.fingerprint()),
+        ]
+    };
     hooks::run(config.hooks.on_wallpaper_apply.as_deref(), &envs).await;
 
     Ok(output)

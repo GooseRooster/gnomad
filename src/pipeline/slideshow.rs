@@ -1,6 +1,6 @@
+use crate::config::{data_dir, GowallTuning};
 use crate::pipeline::{gnome::GnomeInterface, wallpaper_cache};
 use crate::schemes::types::Scheme;
-use crate::config::data_dir;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -10,17 +10,27 @@ pub async fn create_slideshow(
     cache_dir: &Path,
     slug: &str,
     scheme: &Scheme,
+    tuning: &GowallTuning,
     static_secs: u64,
     transition_secs: u64,
     hook_cmd: Option<String>,
     status_tx: tokio::sync::watch::Sender<String>,
 ) -> Result<PathBuf> {
-    wallpaper_cache::batch_convert(scheme, wallpaper_dir, cache_dir, false, hook_cmd, status_tx.clone())
-        .await?;
+    wallpaper_cache::batch_convert(
+        scheme,
+        tuning,
+        wallpaper_dir,
+        cache_dir,
+        false,
+        hook_cmd,
+        status_tx.clone(),
+    )
+    .await?;
 
     let _ = status_tx.send("[ generating slideshow xml... ]".to_string());
 
-    let slug_cache_dir = wallpaper_cache::scheme_cache_dir(cache_dir, slug, wallpaper_dir);
+    let slug_cache_dir =
+        wallpaper_cache::scheme_cache_dir(cache_dir, scheme, wallpaper_dir, tuning);
     let images = collect_images(&slug_cache_dir).await?;
 
     if images.is_empty() {
@@ -34,7 +44,12 @@ pub async fn create_slideshow(
         .await
         .context("creating slideshows directory")?;
     let dir_tag = wallpaper_cache::dir_hash(wallpaper_dir);
-    let xml_path = slideshow_dir.join(format!("{slug}-{dir_tag}.xml"));
+    let tuning_tag = if tuning.is_identity() {
+        String::new()
+    } else {
+        format!("-{}", tuning.fingerprint())
+    };
+    let xml_path = slideshow_dir.join(format!("{slug}-{dir_tag}{tuning_tag}.xml"));
     tokio::fs::write(&xml_path, xml)
         .await
         .context("writing slideshow xml")?;

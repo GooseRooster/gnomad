@@ -9,6 +9,7 @@ project description and architecture, see [PROJECT.md](PROJECT.md).
 cargo build              # debug build
 cargo build --release    # release build
 cargo run                # run TUI
+cargo run -- --gowall-only  # wallpaper-only TUI (no tinty/GTK/Shell writes)
 cargo run -- -v          # verbose (logs to ~/.local/share/gnomad/gnomad.log)
 cargo run -- --apply <slug>       # headless: apply scheme by slug
 cargo run -- --update-schemes     # headless: pull latest schemes repo
@@ -38,7 +39,10 @@ src/
   state.rs             — UI state (active tab, selected scheme/wallpaper, etc.)
   pipeline/
     mod.rs             — apply_scheme() and apply_wallpaper() orchestrators
-    gowall.rs          — gowall subprocess + palette JSON writer
+    gowall.rs          — gowall subprocess + palette JSON writer + managed HOME/CLUT cache
+    blend.rs           — intensity post-blend between source and converted image
+    oklab.rs           — OKLab/OKLCH palette tuning (gowall pipeline only)
+    preview.rs         — downscaled, pruned conversion previews
     gtk_css.rs         — writes ~/.config/gtk-3.0/gtk.css and gtk-4.0/gtk.css
     shell_css.rs       — writes ~/.local/share/themes/<name>/gnome-shell/gnome-shell.css
     paperwm.rs         — PaperWM integration: workspace colour derivation + gsettings sync
@@ -51,8 +55,9 @@ src/
     types.rs           — Scheme struct, Base16/Base24 YAML parsing
     fetch.rs           — git clone/pull for tinted-theming/schemes repo
   ui/
-    scheme_browser.rs  — scheme list + color swatch panel
-    wallpaper_picker.rs — wallpaper list + image preview panel
+    scheme_browser.rs  — scheme list + swatches + CURRENT/PREVIEW image panes
+    wallpaper_picker.rs — wallpaper list + on-demand converted preview
+    tuning.rs          — gowall tuning slider overlay
     animation.rs       — spinner, pipeline progress display, palette strip
 assets/
   templates/
@@ -79,10 +84,14 @@ assets/
 - **custom_schemes_dir defaults to `~/.config/gnomad/schemes`** (always set, not optional). `load_schemes()` skips it silently when the directory doesn't exist yet.
 - **Custom schemes vs tinty sync**: `tinty apply <custom-scheme>` generates untracked `*<system>-<slug>*` files inside tinty's cloned template repos, which makes `tinty sync`/`update` refuse to run (their check is `git status --porcelain`). gnomad does NOT auto-commit (needs git identity, conflicts with update checkouts) — it writes an explicit `slug:` field into the synced YAML (making output filenames deterministic) and appends a `*<system>-<slug>*` pattern to each repo's `.git/info/exclude` (repo-local, never committed, invisible to git status). Idempotent via a per-slug comment marker.
 - **gowall CLI**: `gowall convert <in> -t <json> --output <out>` — output is a flag, not positional.
+- **gowall-only mode** (`gowall_only`, `--gowall-only`/`--full`): `apply_scheme` short-circuits to convert + intensity blend + `set_wallpaper`. It must not call Tinty, GTK/Shell CSS, PaperWM, Steam, `set_color_scheme`, or the User Themes check. `wallpaper_features_enabled()` returns true for either `wallpaper_enabled` or `gowall_only`.
+- **Gowall tuning**: gowall exposes no conversion-strength flags. `[gowall_tuning]` transforms the palette in OKLab/OKLCH before writing the JSON, and `intensity` post-blends the converted image back toward the source. Tuning is global (full mode, gowall-only, batch, slideshow). Cache fingerprints include the scheme palette hash + tuning hash so custom-scheme edits and slider changes invalidate correctly.
+- **Managed gowall HOME**: gowall is run with `HOME` pointed at `~/.cache/gnomad/gowall/home` and `OutputFolder` at `~/.cache/gnomad/gowall/output`, so tuned CLUTs don't accumulate in `~/Pictures/gowall/cluts`. The user's `ColorCorrectionBackend` setting is copied into the managed config. Keep the newest 64 CLUTs.
+- **Preview cache**: scheme/wallpaper previews are downscaled (1600 px), debounced, and stored under `~/.cache/gnomad/previews` (newest 32 kept). They are deliberately separate from the full-size wallpaper cache; browsing hundreds of schemes must not create multi-megabyte full-size conversions.
 - **Accent color**: GNOME's gsettings `accent-color` only accepts named presets. Use CSS `@define-color accent_color/accent_bg_color/accent_fg_color` instead.
 - **Shell CSS reload**: Toggle `color-scheme` gsettings value to force GNOME Shell to re-read the CSS, then restore original value.
-- **Wallpaper cache**: Converted wallpapers are cached per-scheme at `~/.local/share/gnomad/wallpaper-cache/<slug>/`. Cache is checked before running gowall.
-- **Wallpaper features default off**: `wallpaper_enabled` defaults to `false` in config — users opt in via `~/.config/gnomad/config.toml`. `gowall` is still a required PATH binary regardless (checked unconditionally at startup, same as `git`/`tinty`).
+- **Wallpaper cache**: Converted wallpapers are cached per-scheme at `~/.local/share/gnomad/wallpapers/<slug>-<dirhash>[-<tuning>]/` (despite the older `wallpaper-cache/` wording that may appear in history). Cache is checked before running gowall; manifests carry scheme-palette and tuning fingerprints.
+- **Wallpaper features default off**: `wallpaper_enabled` defaults to `false` in config — users opt in via `~/.config/gnomad/config.toml`. `gowall` is still a required PATH binary regardless (checked unconditionally at startup, same as `git`). `tinty` is checked only in full mode; `gowall_only` implies wallpaper features via `Config::wallpaper_features_enabled()`.
 - **Child process I/O**: All subprocesses must use `.stdout(Stdio::null()).stderr(Stdio::null())` — the TUI owns the terminal fd and any inherited I/O corrupts the display.
 - **Verbose logging**: `-v` writes to `~/.local/share/gnomad/gnomad.log` (not stderr) since stderr goes to the alternate screen during TUI operation.
 - **Env-leak strip on gsettings**: `src/pipeline/gnome.rs` removes `GSETTINGS_BACKEND`, `GIO_MODULE_DIR`, and `LD_LIBRARY_PATH` from every `gsettings`/`gnome-extensions` subprocess. These vars are injected by AppImage runtimes (e.g. ghostty's sharun bundler) and redirect GIO away from dconf, which would cause writes to land in a keyfile instead of the session dconf database. Don't refactor them out without an alternative defence.

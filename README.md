@@ -7,6 +7,8 @@ Your GNOME theming companion - right in the terminal. Built in Rust with [Ratatu
 
 Browse and apply base16/base24 colour schemes across your entire GNOME desktop in one keypress. On scheme switch, gnomad converts your wallpaper to match the palette, delegates terminal and app theming to Tinty, writes custom GTK 3/4 and GNOME Shell CSS, and triggers a shell reload. A second panel lets you browse your wallpaper directory and apply any image against the active scheme. Wallpaper features are opt-in — set `wallpaper_enabled = true` in config to enable them.
 
+Prefer to leave your shell theme alone? **Gowall-only mode** (`gowall_only = true`, or `--gowall-only`) uses gnomad purely as a scheme-aware wallpaper browser: it converts wallpapers with gowall and sets them, touching no Tinty, GTK, GNOME Shell, PaperWM or Steam surfaces.
+
 ---
 
 
@@ -28,9 +30,11 @@ https://youtu.be/VyY0kjDfrCM
 - **250+ schemes out of the box** — pulls the full [tinted-theming/schemes](https://github.com/tinted-theming/schemes) catalogue (base16 + base24) via git clone on first run
 - **Full GNOME integration** — GTK 3, GTK 4 (libadwaita), and GNOME Shell panel all theme together
 - **Wallpaper colour conversion** via gowall — converts your wallpaper to match the active palette on every scheme switch (optional, see Config)
+- **Gowall-only mode** — wallpaper browsing/conversion without touching Tinty, GTK, GNOME Shell, PaperWM or Steam; ideal when ChromaLeon (or anything else) owns your shell theme
 - **Terminal and app propagation** via Tinty — themes any app Tinty supports (kitty, alacritty, neovim, etc.) based on your Tinty config
 - **Smart wallpaper cache** — batch-convert an entire wallpaper directory for any scheme; subsequent switches to that scheme are instant (no reconversion)
-- **Image preview** — live wallpaper preview in the picker using Sixel or Kitty Graphics Protocol (wallpaper panel only)
+- **Live scheme previews** — whenever wallpaper features are enabled, the scheme browser shows the current wallpaper above a converted preview for the highlighted scheme; the wallpaper picker converts on demand too
+- **Gowall tuning sliders** — hue, saturation, lightness, contrast, gamma, intensity and neutral-preservation, with OKLab/OKLCH palette math and a live preview
 - **Colour swatches** — inline base16/base24 palette preview for every scheme in the browser
 - **Search** — fuzzy filter the scheme list as you type
 - **Custom schemes** — drop your own YAML files into a configured directory and they appear alongside the catalogue
@@ -45,10 +49,10 @@ https://youtu.be/VyY0kjDfrCM
 
 - GNOME 45+ on Wayland
 - `rustup` installed from your distribution's package manager, or Homebrew
-- `tinty` in `$PATH` — `cargo install tinty` or `brew install tinty` with the tinted-theming brew tap configured
+- `tinty` in `$PATH` — `cargo install tinty` or `brew install tinty` with the tinted-theming brew tap configured *(not required in gowall-only mode)*
 - `git` in `$PATH`
 - `gowall` in `$PATH` — [installation](https://github.com/Achno/gowall#installation) (also supports installation on linux via homebrew)
-- A terminal with [Sixel](https://en.wikipedia.org/wiki/Sixel) or [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support for wallpaper preview (e.g. Kitty, foot, WezTerm, Ghostty) *(optional — wallpaper panel only)*
+- A terminal with [Sixel](https://en.wikipedia.org/wiki/Sixel) or [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support for live scheme/wallpaper previews (e.g. Kitty, foot, WezTerm, Ghostty) *(optional)*
 
 ---
 
@@ -105,7 +109,7 @@ On first launch gnomad will clone the tinted-theming schemes repository into `~/
 
 ## Development
 
-A Nix devShell is provided via the flake — it includes `rustc`/`cargo` (from nixpkgs, no host rustup needed), `rust-analyzer`, `codelldb` (the vscode-lldb DAP adapter), and all of gnomad's runtime dependencies (`git`, `gowall`, `tinty`, `glib`).
+A Nix devShell is provided via the flake — it includes `rustc`/`cargo` (from nixpkgs, no host rustup needed), `rust-analyzer`, `codelldb` (the vscode-lldb DAP adapter), and all of gnomad's runtime dependencies (`git`, `gowall`, `tinty`, `glib`). Gowall-only mode does not require `tinty` on `PATH`.
 
 ```bash
 nix develop      # enter the dev shell
@@ -210,10 +214,20 @@ output_wallpaper_path = "~/.local/share/gnomad/current-wallpaper.png"
 wallpaper_cache_dir = "~/.local/share/gnomad/wallpapers"
 follow_user_scheme_type = true   # filter schemes by GNOME dark/light preference
 wallpaper_enabled = false        # set to true to enable wallpaper features
+gowall_only = false              # wallpaper-only mode; implies wallpaper features
 adwaita_steam_enabled = false    # set to true to enable Adwaita for Steam integration
 paperwm_enabled = false          # set to true to enable PaperWM integration
 slideshow_static_secs = 3600     # seconds each wallpaper is shown before crossfading
 slideshow_transition_secs = 1800 # seconds each crossfade lasts
+
+[gowall_tuning]
+hue_shift = 0            # degrees (-180..180)
+saturation = 100         # percent (0..200)
+lightness = 100          # percent (0..200)
+contrast = 0             # percent (-100..100)
+gamma = 100              # percent (50..200; 100 = 1.0x)
+intensity = 100          # percent; blends converted image back toward the source
+preserve_neutrals = true # keep low-chroma colours neutral during hue/sat shifts
 
 [hooks]
 # on_scheme_apply = "..."
@@ -231,6 +245,8 @@ slideshow_transition_secs = 1800 # seconds each crossfade lasts
 | `wallpaper_cache_dir` | `~/.local/share/gnomad/wallpapers` | Root for per-scheme wallpaper cache |
 | `follow_user_scheme_type` | `true` | Filter scheme list to match GNOME's prefer-dark/prefer-light setting |
 | `wallpaper_enabled` | `false` | When `true`, enables wallpaper operations and the wallpaper panel |
+| `gowall_only` | `false` | Wallpaper-only mode: skips Tinty, GTK/Shell CSS, PaperWM, Steam and the colour-scheme toggle. Implies wallpaper features |
+| `gowall_tuning.*` | identity | Palette pre-processing and image blend intensity used by every gowall conversion; adjustable live with `[t]` |
 | `adwaita_steam_enabled` | `false` | When `true`, writes scheme colours to Adwaita for Steam's custom CSS on each scheme switch; requires Adwaita-for-Steam to be installed |
 | `paperwm_enabled` | `false` | When `true`, themes PaperWM (workspace colours, minimap, clone shade) to match the active scheme; requires the PaperWM extension to be installed |
 | `slideshow_static_secs` | `3600` | How long each wallpaper is displayed (in seconds) before the crossfade begins |
@@ -256,7 +272,7 @@ on_wallpaper_batch_convert = "/usr/bin/gsettings set org.gnome.shell.extensions.
 | Key | Fires | Env vars available |
 |---|---|---|
 | `on_scheme_apply` | After a full scheme switch completes successfully | `GNOMAD_SCHEME_SLUG`, `GNOMAD_SCHEME_NAME`, `GNOMAD_SCHEME_SYSTEM` (`base16`/`base24`), `GNOMAD_SCHEME_VARIANT` (empty if unset), `GNOMAD_WALLPAPER_PATH` (empty if wallpapers disabled) |
-| `on_wallpaper_apply` | After a standalone wallpaper switch (no scheme change) | `GNOMAD_WALLPAPER_PATH`, `GNOMAD_SCHEME_SLUG` (empty if no active scheme) |
+| `on_wallpaper_apply` | After a standalone wallpaper switch, or after a scheme apply in gowall-only mode | `GNOMAD_WALLPAPER_PATH`, `GNOMAD_SCHEME_SLUG` (empty if no active scheme), `GNOMAD_SCHEME_NAME`, `GNOMAD_SCHEME_SYSTEM`, `GNOMAD_SCHEME_VARIANT`, `GNOMAD_GOWALL_TUNING`, and `GNOMAD_GOWALL_ONLY=1` in gowall-only mode |
 | `on_wallpaper_batch_convert` | After `[c]`/`[Shift+C]` batch-converts a wallpaper directory, and after `[s]` creates a slideshow (which batch-converts internally) | `GNOMAD_SCHEME_SLUG`, `GNOMAD_CACHE_DIR` (the per-scheme cache directory, now populated), `GNOMAD_WALLPAPER_COUNT` |
 
 ---
@@ -280,7 +296,10 @@ on_wallpaper_batch_convert = "/usr/bin/gsettings set org.gnome.shell.extensions.
 | `Shift+C` | Force re-convert (bypass cache) |
 | `s` | Create GNOME slideshow from wallpaper directory (Wallpapers panel) |
 | `d` | Change wallpaper directory (Wallpapers panel) |
+| `t` | Open the gowall tuning overlay (all modes) |
 | `q` | Quit |
+
+Inside the tuning overlay: `j`/`k` select, `h`/`l` adjust (`Shift` for coarse steps), `r` reset the selected value, `R` reset everything, `Esc` close.
 
 ---
 
@@ -304,9 +323,21 @@ This is a limitation with how shell and application CSS reloading works on GNOME
 
 Picking a wallpaper and pressing `Enter` runs only gowall + wallpaper set; no CSS or Tinty calls. If the wallpaper has already been converted for the active scheme (cache hit), gowall is skipped entirely and the switch is instant.
 
+### Gowall-only mode
+
+With `gowall_only = true` (or `--gowall-only`), pressing `Enter` on a scheme converts the current wallpaper with that scheme and sets it, then exits the pipeline. Tinty, GTK CSS, GNOME Shell CSS, PaperWM, Steam CSS, `color-scheme`, and the User Themes extension check are all skipped. This makes gnomad safe to use alongside other shell-theme managers (for example, letting ChromaLeon theme GNOME Shell while gnomad generates wallpapers from a custom scheme).
+
+### Live previews and tuning
+
+When wallpaper features are enabled, the scheme browser shows the current wallpaper above a converted preview for the highlighted scheme. The wallpaper picker also generates converted previews on demand. Previews are downscaled, debounced, cached separately from full-size conversions, and pruned automatically.
+
+`[t]` opens the gowall tuning overlay. gowall itself exposes no conversion-strength or colour-space flags, so gnomad transforms the palette in OKLab/OKLCH before invoking it, and `intensity` blends the converted image back toward the original source (0% = untouched, 100% = full conversion). Tuning applies to normal mode, gowall-only mode, batch conversions and slideshows.
+
 ### Batch convert
 
-`[c]` converts every image in your wallpaper directory against a scheme and stores the results under `~/.local/share/gnomad/wallpapers/<scheme-slug>-<dir-hash>/`. The cache is keyed by both scheme and wallpaper directory, so changing `wallpaper_dir` in config always produces a separate cache — no cross-contamination between directories with identically-named files. Subsequent wallpaper switches under the same (scheme + directory) combination never call gowall. A `manifest.json` in each cache directory tracks source mtimes for cache invalidation.
+`[c]` converts every image in your wallpaper directory against a scheme and stores the results under `~/.local/share/gnomad/wallpapers/<scheme-slug>-<dir-hash>[-<tuning-hash>]/`. The cache is keyed by scheme palette, wallpaper directory, and tuning, so changing `wallpaper_dir` or tuning always produces a separate cache — no cross-contamination between directories with identically-named files or between tuning settings. Subsequent wallpaper switches under the same combination never call gowall. A `manifest.json` in each cache directory tracks source mtimes plus scheme/tuning fingerprints for cache invalidation.
+
+Gnomad runs gowall with its own managed HOME/output tree under `~/.cache/gnomad/gowall`, so tuning-generated CLUTs do not accumulate in `~/Pictures/gowall/cluts`. The newest 64 CLUTs are retained.
 
 ---
 
@@ -324,6 +355,8 @@ Under the hood, gnomad mirrors each custom scheme into tinty's `custom-schemes/<
 
 ```bash
 gnomad                    # launch TUI
+gnomad --gowall-only      # launch in wallpaper-only mode for this run
+gnomad --full             # override gowall_only = true for this run
 gnomad --update-schemes   # pull latest schemes and exit
 gnomad --apply <slug>     # headless scheme apply and exit (e.g. for scripting)
 ```
