@@ -1,0 +1,44 @@
+---
+source: src/test_support.rs
+expression: screen
+---
+ gnomad — Wallpapers  [gowall-only]  [Tab] Switch panel
+┌ WALLPAPERS — [TMP]/wallpapers ───────────┐┌ PREVIEW → Test Scheme ─────────────────────────────────────────┐
+│> [raw]    alpha.jpg                                ││                                                                │
+│  [raw]    beta.jpg                                 ││  alpha.jpg                                                     │
+│                                                    ││                                                                │
+│                                                    ││  (no graphics protocol support detected)                       │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+│                                                    ││                                                                │
+└────────────────────────────────────────────────────┘└────────────────────────────────────────────────────────────────┘
+ [Enter] Apply  [t] Tuning  [c] Convert dir  [Shift+C] Force  [s] Slideshow  [d] Change dir  [Tab/h/l] Panel  [q] Quit
+ Active: test-scheme   Wall: alpha.jpg

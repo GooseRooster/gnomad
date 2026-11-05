@@ -404,6 +404,122 @@ mod tests {
 
         assert!(env.calls().contains("gowall"), "calls:\n{}", env.calls());
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn scheme_apply_hook_gets_scheme_and_wallpaper_env() {
+        let env = TestEnv::new();
+        let mut config = test_config(&env, false);
+        config.hooks.on_scheme_apply = Some(env.hook_command("scheme-hook.env"));
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        let output = apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+        let vars = env.read_hook_env("scheme-hook.env");
+
+        assert_eq!(vars["GNOMAD_SCHEME_SLUG"], "test-scheme");
+        assert_eq!(vars["GNOMAD_SCHEME_NAME"], "Test Scheme");
+        assert_eq!(vars["GNOMAD_SCHEME_SYSTEM"], "base16");
+        assert_eq!(vars["GNOMAD_SCHEME_VARIANT"], "dark");
+        assert_eq!(vars["GNOMAD_WALLPAPER_PATH"], output.display().to_string());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn scheme_apply_hook_has_empty_wallpaper_when_disabled() {
+        let env = TestEnv::new();
+        let mut config = test_config(&env, false);
+        config.wallpaper_enabled = false;
+        config.hooks.on_scheme_apply = Some(env.hook_command("scheme-hook.env"));
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        apply_scheme(&scheme, &config, None, tx).await.unwrap();
+        let vars = env.read_hook_env("scheme-hook.env");
+
+        assert_eq!(vars["GNOMAD_SCHEME_SLUG"], "test-scheme");
+        assert_eq!(vars["GNOMAD_WALLPAPER_PATH"], "");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn gowall_only_hook_gets_wallpaper_env() {
+        let env = TestEnv::new();
+        let mut config = test_config(&env, true);
+        config.hooks.on_scheme_apply = Some(env.hook_command("scheme-hook.env"));
+        config.hooks.on_wallpaper_apply = Some(env.hook_command("wallpaper-hook.env"));
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        let output = apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+        let vars = env.read_hook_env("wallpaper-hook.env");
+
+        assert_eq!(vars["GNOMAD_GOWALL_ONLY"], "1");
+        assert_eq!(vars["GNOMAD_SCHEME_SLUG"], "test-scheme");
+        assert_eq!(vars["GNOMAD_SCHEME_NAME"], "Test Scheme");
+        assert_eq!(vars["GNOMAD_SCHEME_SYSTEM"], "base16");
+        assert_eq!(vars["GNOMAD_SCHEME_VARIANT"], "dark");
+        assert_eq!(vars["GNOMAD_WALLPAPER_PATH"], output.display().to_string());
+        assert_eq!(
+            vars["GNOMAD_GOWALL_TUNING"],
+            config.gowall_tuning.fingerprint()
+        );
+        assert!(!env.hook_ran("scheme-hook.env"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn apply_wallpaper_hook_gets_active_scheme_env() {
+        let env = TestEnv::new();
+        let mut config = test_config(&env, true);
+        config.hooks.on_wallpaper_apply = Some(env.hook_command("wallpaper-hook.env"));
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        let output = apply_wallpaper(&source, Some(&scheme), &config, tx)
+            .await
+            .unwrap();
+        let vars = env.read_hook_env("wallpaper-hook.env");
+
+        assert_eq!(vars["GNOMAD_SCHEME_SLUG"], "test-scheme");
+        assert_eq!(vars["GNOMAD_SCHEME_NAME"], "Test Scheme");
+        assert_eq!(vars["GNOMAD_SCHEME_SYSTEM"], "base16");
+        assert_eq!(vars["GNOMAD_SCHEME_VARIANT"], "dark");
+        assert_eq!(vars["GNOMAD_WALLPAPER_PATH"], output.display().to_string());
+        assert_eq!(
+            vars["GNOMAD_GOWALL_TUNING"],
+            config.gowall_tuning.fingerprint()
+        );
+        assert!(!vars.contains_key("GNOMAD_GOWALL_ONLY"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn apply_wallpaper_hook_without_scheme_uses_empty_slug() {
+        let env = TestEnv::new();
+        let mut config = test_config(&env, true);
+        config.hooks.on_wallpaper_apply = Some(env.hook_command("wallpaper-hook.env"));
+        let source = env.wallpaper("sample.jpg");
+        let (tx, _rx) = watch::channel(String::new());
+
+        let output = apply_wallpaper(&source, None, &config, tx).await.unwrap();
+        let vars = env.read_hook_env("wallpaper-hook.env");
+
+        assert_eq!(vars["GNOMAD_SCHEME_SLUG"], "");
+        assert!(!vars.contains_key("GNOMAD_SCHEME_NAME"));
+        assert_eq!(vars["GNOMAD_WALLPAPER_PATH"], output.display().to_string());
+        assert_eq!(
+            vars["GNOMAD_GOWALL_TUNING"],
+            config.gowall_tuning.fingerprint()
+        );
+    }
 }
 
 #[cfg(test)]
@@ -515,5 +631,182 @@ mod feature_tests {
         assert!(env
             .calls()
             .contains("gsettings set org.gnome.desktop.background picture-uri"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn batch_convert_hook_gets_cache_env() {
+        let env = TestEnv::new();
+        let config = test_config(&env);
+        env.wallpaper("a.jpg");
+        env.wallpaper("b.jpg");
+        let scheme = test_scheme();
+        let (tx, rx) = watch::channel(String::new());
+        let hook = env.hook_command("batch-hook.env");
+
+        wallpaper_cache::batch_convert(
+            &scheme,
+            &config.gowall_tuning,
+            &config.wallpaper_dir,
+            &config.wallpaper_cache_dir,
+            false,
+            Some(hook),
+            tx,
+        )
+        .await
+        .unwrap();
+
+        let cache_dir = wallpaper_cache::scheme_cache_dir(
+            &config.wallpaper_cache_dir,
+            &scheme,
+            &config.wallpaper_dir,
+            &config.gowall_tuning,
+        );
+        let vars = env.read_hook_env("batch-hook.env");
+        assert_eq!(vars["GNOMAD_SCHEME_SLUG"], "test-scheme");
+        assert_eq!(vars["GNOMAD_CACHE_DIR"], cache_dir.display().to_string());
+        assert_eq!(vars["GNOMAD_WALLPAPER_COUNT"], "2");
+        assert_eq!(rx.borrow().as_str(), "[ converted 2 wallpapers ]");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn batch_convert_hook_runs_when_everything_is_cached() {
+        let env = TestEnv::new();
+        let config = test_config(&env);
+        env.wallpaper("a.jpg");
+        env.wallpaper("b.jpg");
+        let scheme = test_scheme();
+
+        let (tx, _rx) = watch::channel(String::new());
+        wallpaper_cache::batch_convert(
+            &scheme,
+            &config.gowall_tuning,
+            &config.wallpaper_dir,
+            &config.wallpaper_cache_dir,
+            false,
+            None,
+            tx,
+        )
+        .await
+        .unwrap();
+
+        let (tx, rx) = watch::channel(String::new());
+        let hook = env.hook_command("batch-hook.env");
+        wallpaper_cache::batch_convert(
+            &scheme,
+            &config.gowall_tuning,
+            &config.wallpaper_dir,
+            &config.wallpaper_cache_dir,
+            false,
+            Some(hook),
+            tx,
+        )
+        .await
+        .unwrap();
+
+        let vars = env.read_hook_env("batch-hook.env");
+        assert_eq!(vars["GNOMAD_WALLPAPER_COUNT"], "2");
+        assert_eq!(rx.borrow().as_str(), "[ all 2 wallpapers already cached ]");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn batch_convert_partial_failure_reports_and_skips_hook() {
+        let env = TestEnv::new();
+        let config = test_config(&env);
+        let a = env.wallpaper("a.jpg");
+        let b = env.wallpaper("b.jpg");
+        let c = env.wallpaper("c.jpg");
+        std::fs::write(env.root.join("gowall.skip"), "b.jpg").unwrap();
+        let scheme = test_scheme();
+        let (tx, rx) = watch::channel(String::new());
+        let hook = env.hook_command("batch-hook.env");
+
+        let err = wallpaper_cache::batch_convert(
+            &scheme,
+            &config.gowall_tuning,
+            &config.wallpaper_dir,
+            &config.wallpaper_cache_dir,
+            false,
+            Some(hook),
+            tx,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("1 wallpaper(s) failed"), "{err:#}");
+        assert_eq!(rx.borrow().as_str(), "[ 2 done, 1 failed ]");
+        assert!(!env.hook_ran("batch-hook.env"));
+
+        let cache_dir = wallpaper_cache::scheme_cache_dir(
+            &config.wallpaper_cache_dir,
+            &scheme,
+            &config.wallpaper_dir,
+            &config.gowall_tuning,
+        );
+        assert!(wallpaper_cache::is_cached(
+            &a,
+            &cache_dir,
+            &scheme,
+            &config.gowall_tuning
+        ));
+        assert!(wallpaper_cache::is_cached(
+            &c,
+            &cache_dir,
+            &scheme,
+            &config.gowall_tuning
+        ));
+        assert!(!wallpaper_cache::is_cached(
+            &b,
+            &cache_dir,
+            &scheme,
+            &config.gowall_tuning
+        ));
+
+        let manifest = wallpaper_cache::Manifest::load(&cache_dir).expect("manifest");
+        assert_eq!(manifest.entries.len(), 2);
+        assert!(manifest.entries.contains_key("a.jpg"));
+        assert!(manifest.entries.contains_key("c.jpg"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn batch_convert_command_failure_reports_and_skips_hook() {
+        let env = TestEnv::new();
+        let config = test_config(&env);
+        env.wallpaper("a.jpg");
+        env.wallpaper("b.jpg");
+        std::fs::write(env.root.join("gowall.fail"), "").unwrap();
+        let scheme = test_scheme();
+        let (tx, rx) = watch::channel(String::new());
+        let hook = env.hook_command("batch-hook.env");
+
+        let err = wallpaper_cache::batch_convert(
+            &scheme,
+            &config.gowall_tuning,
+            &config.wallpaper_dir,
+            &config.wallpaper_cache_dir,
+            false,
+            Some(hook),
+            tx,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("gowall --dir conversion failed"),
+            "{err:#}"
+        );
+        assert_eq!(rx.borrow().as_str(), "[ batch conversion failed ]");
+        assert!(!env.hook_ran("batch-hook.env"));
+
+        let cache_dir = wallpaper_cache::scheme_cache_dir(
+            &config.wallpaper_cache_dir,
+            &scheme,
+            &config.wallpaper_dir,
+            &config.gowall_tuning,
+        );
+        assert!(!cache_dir.join("manifest.json").exists());
     }
 }

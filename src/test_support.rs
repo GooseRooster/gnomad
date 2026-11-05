@@ -6,6 +6,7 @@ use crate::config::Config;
 use crate::schemes::types::{Scheme, SchemeSystem};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{backend::TestBackend, Terminal};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
@@ -78,6 +79,10 @@ impl TestEnv {
     fn write_fake_tools(&self) {
         let gowall = r#"#!/bin/sh
 echo "gowall $*" >> "$GNOMAD_TEST_LOG"
+test_root=$(dirname "$GNOMAD_TEST_LOG")
+if [ -f "$test_root/gowall.fail" ]; then
+  exit 1
+fi
 if [ "$2" = "--dir" ] || [ "$2" = "--batch" ]; then
   dir="$3"
   out=""
@@ -89,6 +94,10 @@ if [ "$2" = "--dir" ] || [ "$2" = "--batch" ]; then
   if [ -n "$out" ] && [ -d "$dir" ]; then
     mkdir -p "$out"
     cp "$dir"/* "$out"/ 2>/dev/null || true
+    if [ -f "$test_root/gowall.skip" ]; then
+      skip=$(cat "$test_root/gowall.skip")
+      rm -f "$out/$skip"
+    fi
   fi
   exit 0
 fi
@@ -168,6 +177,28 @@ exit 0
 
     pub fn clear_calls(&self) {
         let _ = fs::remove_file(self.root.join("calls.log"));
+    }
+
+    /// Shell command that writes the hook environment to a file under the
+    /// test root. Hooks run through `sh -c`, so this exercises the real path.
+    pub fn hook_command(&self, name: &str) -> String {
+        format!("env > '{}'", self.root.join(name).display())
+    }
+
+    /// Read a file produced by [`TestEnv::hook_command`].
+    pub fn read_hook_env(&self, name: &str) -> HashMap<String, String> {
+        let path = self.root.join(name);
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read hook env file {}: {e}", path.display()));
+        content
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    pub fn hook_ran(&self, name: &str) -> bool {
+        self.root.join(name).exists()
     }
 
     pub fn gtk_css(&self) -> PathBuf {
@@ -265,6 +296,16 @@ impl TestApp {
         out
     }
 
+    /// Snapshot-friendly screen dump: same text as [`TestApp::screen`], but
+    /// with trailing blank-cell padding removed from each line.
+    pub fn snapshot_screen(&self) -> String {
+        self.screen()
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub fn contains(&self, needle: &str) -> bool {
         self.screen().contains(needle)
     }
@@ -348,5 +389,112 @@ mod tests {
         harness.terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
         harness.draw();
         assert!(harness.contains("gnomad"));
+    }
+
+    fn snapshot_config(env: &TestEnv, gowall_only: bool, wallpaper_enabled: bool) -> Config {
+        let mut config = env.config();
+        config.gowall_only = gowall_only;
+        config.wallpaper_enabled = wallpaper_enabled;
+        config.save().unwrap();
+        config
+    }
+
+    fn scheme_snapshot_harness(env: &TestEnv, gowall_only: bool) -> TestApp {
+        let config = snapshot_config(env, gowall_only, true);
+        let mut harness = TestApp::new(config);
+        harness.app.state.set_schemes(vec![test_scheme()], false);
+        harness
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn snapshot_scheme_browser_gowall_only() {
+        let env = TestEnv::new();
+        let mut harness = scheme_snapshot_harness(&env, true);
+        harness.draw();
+
+        insta::assert_snapshot!("scheme_browser_gowall_only", harness.snapshot_screen());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn snapshot_scheme_browser_full_mode() {
+        let env = TestEnv::new();
+        let mut harness = scheme_snapshot_harness(&env, false);
+        harness.draw();
+
+        insta::assert_snapshot!("scheme_browser_full_mode", harness.snapshot_screen());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn snapshot_wallpaper_panel() {
+        let env = TestEnv::new();
+        let config = snapshot_config(&env, true, true);
+        let alpha = env.wallpaper("alpha.jpg");
+        let beta = env.wallpaper("beta.jpg");
+
+        let mut harness = TestApp::new(config);
+        harness.app.state.set_schemes(vec![test_scheme()], false);
+        harness.app.state.active_scheme = Some(test_scheme());
+        harness.app.state.wallpapers = vec![alpha.clone(), beta];
+        harness.app.state.current_wallpaper = Some(alpha);
+
+        harness.send(KeyCode::Tab).await;
+        harness.draw();
+
+        let screen = harness
+            .snapshot_screen()
+            .replace(env.root.to_str().unwrap(), "[TMP]");
+        insta::assert_snapshot!("wallpaper_panel", screen);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn snapshot_search_active() {
+        let env = TestEnv::new();
+        let mut harness = scheme_snapshot_harness(&env, true);
+
+        harness.send(KeyCode::Char('/')).await;
+        for c in "test".chars() {
+            harness.send(KeyCode::Char(c)).await;
+        }
+        harness.draw();
+
+        insta::assert_snapshot!("scheme_search_active", harness.snapshot_screen());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn snapshot_tuning_overlay() {
+        let env = TestEnv::new();
+        let mut harness = scheme_snapshot_harness(&env, true);
+
+        harness.send(KeyCode::Char('t')).await;
+        harness.draw();
+
+        insta::assert_snapshot!("tuning_overlay", harness.snapshot_screen());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn snapshot_small_terminal() {
+        let env = TestEnv::new();
+        let mut harness = scheme_snapshot_harness(&env, true);
+        harness.terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+        harness.draw();
+
+        insta::assert_snapshot!("small_terminal", harness.snapshot_screen());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn snapshot_error_status() {
+        let env = TestEnv::new();
+        let mut harness = scheme_snapshot_harness(&env, true);
+        harness.app.state.last_error = Some("could not apply test-scheme".to_string());
+        harness.draw();
+
+        insta::assert_snapshot!("error_status", harness.snapshot_screen());
     }
 }

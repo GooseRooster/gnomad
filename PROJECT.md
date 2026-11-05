@@ -69,11 +69,16 @@ live GNOME session:
 - UI tests drive `App::render` and `App::handle_key` directly and assert on the
   terminal buffer. Image protocols are skipped via
   `GNOMAD_DISABLE_IMAGE_PREVIEW=1`; preview state/paths are tested separately.
+- `insta` snapshot tests compare the main screens against checked-in `.snap`
+  files in `src/snapshots/`. Snapshots use `TestApp::snapshot_screen()` so
+  trailing blank-cell padding does not create churn; temp paths are normalised
+  before assertion. Review intentional layout changes with `cargo insta review`.
 - Pipeline tests run the real orchestrators against the fake commands and
-  assert filesystem side effects, cache manifests, full-mode writes, and the
-  gowall-only invariants.
+  assert filesystem side effects, cache manifests, full-mode writes, hook
+  environment variables, batch partial failures, and the gowall-only invariants.
 - `tests/pty_smoke.rs` launches the real binary in a PTY to cover crossterm,
-  raw mode, alternate-screen setup, and clean shutdown.
+  raw mode, alternate-screen setup, and clean shutdown. CI runs it as its own
+  explicit step.
 
 ## Scheme sources
 

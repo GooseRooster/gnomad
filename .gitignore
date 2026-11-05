@@ -13,6 +13,9 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Pending insta snapshots (reviewed and accepted with `cargo insta accept`)
+*.snap.new
+
 /target
 
 # Release tarballs built by scripts/release.sh

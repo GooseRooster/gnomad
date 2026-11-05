@@ -8,7 +8,8 @@ project description and architecture, see [PROJECT.md](PROJECT.md).
 ```bash
 cargo build              # debug build
 cargo build --release    # release build
-cargo test               # unit + TestBackend UI + fake-CLI pipeline + PTY smoke
+cargo test               # unit + TestBackend UI + insta snapshots + fake-CLI pipeline + PTY smoke
+cargo insta review       # review/accept UI snapshot changes (optional; needs cargo-insta)
 cargo run                # run TUI
 cargo run -- --gowall-only  # wallpaper-only TUI (no tinty/GTK/Shell writes)
 cargo run -- -v          # verbose (logs to ~/.local/share/gnomad/gnomad.log)
@@ -61,6 +62,7 @@ src/
     tuning.rs          — gowall tuning slider overlay
     animation.rs       — spinner, pipeline progress display, palette strip
   test_support.rs      — cfg(test) UI harness, isolated env, fake external commands
+  snapshots/           — committed insta snapshots of the main UI screens
 tests/
   pty_smoke.rs         — real binary in a PTY: render + clean quit
 assets/
@@ -96,7 +98,9 @@ assets/
 - **Shell CSS reload**: Toggle `color-scheme` gsettings value to force GNOME Shell to re-read the CSS, then restore original value.
 - **Wallpaper cache**: Converted wallpapers are cached per-scheme at `~/.local/share/gnomad/wallpapers/<slug>-<dirhash>[-<tuning>]/` (despite the older `wallpaper-cache/` wording that may appear in history). Cache is checked before running gowall; manifests carry scheme-palette and tuning fingerprints.
 - **Wallpaper features default off**: `wallpaper_enabled` defaults to `false` in config — users opt in via `~/.config/gnomad/config.toml`. `gowall` is still a required PATH binary regardless (checked unconditionally at startup, same as `git`). `tinty` is checked only in full mode; `gowall_only` implies wallpaper features via `Config::wallpaper_features_enabled()`.
-- **Test harness**: `src/test_support.rs` (cfg(test)) provides `TestEnv` (temp `HOME`/XDG, fake `gowall`/`tinty`/`gsettings`/`gnome-extensions` scripts) and `TestApp` (`Terminal<TestBackend>` + `App`). UI tests set `GNOMAD_DISABLE_IMAGE_PREVIEW=1`; pipeline tests set `GNOMAD_GSETTINGS_BIN` so the fake gsettings is used instead of the pinned `/usr/bin/gsettings`. Env-mutating tests use `#[serial]`. `TestBackend` cannot render ratatui-image protocols; test preview state/paths or use the PTY smoke test. `tests/pty_smoke.rs` drives the real binary in a PTY for crossterm/raw-mode coverage.
+- **Test harness**: `src/test_support.rs` (cfg(test)) provides `TestEnv` (temp `HOME`/XDG, fake `gowall`/`tinty`/`gsettings`/`gnome-extensions` scripts) and `TestApp` (`Terminal<TestBackend>` + `App`). UI tests set `GNOMAD_DISABLE_IMAGE_PREVIEW=1`; pipeline tests set `GNOMAD_GSETTINGS_BIN` so the fake gsettings is used instead of the pinned `/usr/bin/gsettings`. Env-mutating tests use `#[serial]`. `TestBackend` cannot render ratatui-image protocols; test preview state/paths or use the PTY smoke test. `tests/pty_smoke.rs` drives the real binary in a PTY for crossterm/raw-mode coverage; CI runs it as an explicit step.
+- **UI snapshots**: `insta` snapshots live in `src/snapshots/`. Use `TestApp::snapshot_screen()` (trailing blank-cell padding trimmed) and normalise `TestEnv.root` before asserting screens that render temp paths. After an intentional layout change run `cargo insta review` or `INSTA_UPDATE=always cargo test`; never commit `*.snap.new`.
+- **Fake CLI controls**: the fake `gowall` reads failure markers next to `$GNOMAD_TEST_LOG` — `gowall.skip` names one batch file to omit (partial failure) and `gowall.fail` makes the command exit 1 (total failure). Hook-env tests use `TestEnv::hook_command()`/`read_hook_env()` to run a real `sh -c` hook that dumps its environment.
 - **Child process I/O**: All subprocesses must use `.stdout(Stdio::null()).stderr(Stdio::null())` — the TUI owns the terminal fd and any inherited I/O corrupts the display.
 - **Verbose logging**: `-v` writes to `~/.local/share/gnomad/gnomad.log` (not stderr) since stderr goes to the alternate screen during TUI operation.
 - **Env-leak strip on gsettings**: `src/pipeline/gnome.rs` removes `GSETTINGS_BACKEND`, `GIO_MODULE_DIR`, and `LD_LIBRARY_PATH` from every `gsettings`/`gnome-extensions` subprocess. These vars are injected by AppImage runtimes (e.g. ghostty's sharun bundler) and redirect GIO away from dconf, which would cause writes to land in a keyfile instead of the session dconf database. Don't refactor them out without an alternative defence.

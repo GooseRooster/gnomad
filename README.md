@@ -125,11 +125,12 @@ For per-developer personalization (env vars, aliases, personal tools), copy `.en
 cargo test
 ```
 
-The suite has three layers:
+The suite has four layers:
 
 - **UI tests** use ratatui's `TestBackend` and drive `App::render` / `App::handle_key` directly. They cover startup, panel switching, search, the tuning overlay, and small-terminal layouts.
-- **Pipeline tests** run the real orchestrators against temporary `HOME`/XDG trees and fake `gowall`, `tinty`, `gsettings`, and `gnome-extensions` executables. They assert full-mode side effects and the gowall-only invariants (no Tinty, CSS, Shell, or colour-scheme writes).
-- **PTY smoke test** (`tests/pty_smoke.rs`) launches the real binary in a pseudo-terminal, asserts it renders, and verifies it exits cleanly on `q`, exercising crossterm/raw-mode/terminal lifecycle paths that `TestBackend` bypasses.
+- **UI snapshots** use `insta` to compare the rendered main screens against checked-in `.snap` files under `src/snapshots/`. They cover the scheme browser (gowall-only and full mode), wallpaper panel, search state, tuning overlay, small-terminal layout, and error status. After an intentional layout change, run `cargo insta review` (or `INSTA_UPDATE=always cargo test`) and commit the updated snapshots.
+- **Pipeline tests** run the real orchestrators against temporary `HOME`/XDG trees and fake `gowall`, `tinty`, `gsettings`, and `gnome-extensions` executables. They assert full-mode side effects, the gowall-only invariants (no Tinty, CSS, Shell, or colour-scheme writes), hook environment variables, and partial/total batch-conversion failures.
+- **PTY smoke test** (`tests/pty_smoke.rs`) launches the real binary in a pseudo-terminal, asserts it renders, and verifies it exits cleanly on `q`, exercising crossterm/raw-mode/terminal lifecycle paths that `TestBackend` bypasses. CI runs it as an explicit step separate from the unit/UI suite.
 
 The test harness sets `GNOMAD_DISABLE_IMAGE_PREVIEW=1` so graphics-protocol queries don't block in non-interactive environments.
 

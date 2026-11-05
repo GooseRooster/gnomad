@@ -31,5 +31,6 @@ unicode-width = "0.2"
 
 [dev-dependencies]
 expectrl = "0.9"
+insta = "1"
 serial_test = "3"
 tempfile = "3"
