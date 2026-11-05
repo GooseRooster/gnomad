@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Palette pre-processing applied before gowall converts an image.
 ///
@@ -166,6 +166,26 @@ fn default_wallpaper_cache_dir() -> PathBuf {
     data_dir().join("wallpapers")
 }
 
+/// Expand a leading `~` or `~/` using `home`. Other `~` uses are left alone;
+/// only the conventional home-directory shorthand is supported.
+fn expand_tilde_with_home(path: PathBuf, home: &Path) -> PathBuf {
+    match path.to_str() {
+        Some("~") => home.to_path_buf(),
+        Some(rest) => match rest.strip_prefix("~/") {
+            Some(suffix) => home.join(suffix),
+            None => path,
+        },
+        None => path,
+    }
+}
+
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    match dirs::home_dir() {
+        Some(home) => expand_tilde_with_home(path, &home),
+        None => path,
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -231,7 +251,23 @@ impl Config {
         }
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        toml::from_str(&content).context("parsing config.toml")
+        let mut config: Config = toml::from_str(&content).context("parsing config.toml")?;
+        config.expand_paths();
+        Ok(config)
+    }
+
+    /// Expand `~` shorthand in all user-configurable filesystem paths.
+    /// TOML has no shell expansion, and gowall/gsettings treat a leading `~`
+    /// literally — which used to split reads and writes across two trees.
+    fn expand_paths(&mut self) {
+        self.wallpaper_dir = expand_tilde(std::mem::take(&mut self.wallpaper_dir));
+        self.custom_schemes_dir = expand_tilde(std::mem::take(&mut self.custom_schemes_dir));
+        self.schemes_repo_dir = expand_tilde(std::mem::take(&mut self.schemes_repo_dir));
+        self.output_wallpaper_path = expand_tilde(std::mem::take(&mut self.output_wallpaper_path));
+        self.wallpaper_cache_dir = expand_tilde(std::mem::take(&mut self.wallpaper_cache_dir));
+        if let Some(last) = self.last_wallpaper.take() {
+            self.last_wallpaper = Some(expand_tilde(last));
+        }
     }
 
     pub fn save(&self) -> Result<()> {
@@ -271,6 +307,74 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TestEnv;
+    use serial_test::serial;
+    use std::fs;
+
+    #[test]
+    fn expand_tilde_only_touches_leading_home_shorthand() {
+        let home = Path::new("/home/tester");
+        assert_eq!(
+            expand_tilde_with_home(PathBuf::from("~/Pictures"), home),
+            PathBuf::from("/home/tester/Pictures")
+        );
+        assert_eq!(
+            expand_tilde_with_home(PathBuf::from("~"), home),
+            PathBuf::from("/home/tester")
+        );
+        assert_eq!(
+            expand_tilde_with_home(PathBuf::from("/absolute"), home),
+            PathBuf::from("/absolute")
+        );
+        assert_eq!(
+            expand_tilde_with_home(PathBuf::from("relative/path"), home),
+            PathBuf::from("relative/path")
+        );
+        assert_eq!(
+            expand_tilde_with_home(PathBuf::from("~user/path"), home),
+            PathBuf::from("~user/path")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn load_expands_tilde_in_every_path_field() {
+        let env = TestEnv::new();
+        let config_dir = env.root.join(".config/gnomad");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("config.toml"),
+            r#"
+wallpaper_dir = "~/Pictures/Wallpapers"
+custom_schemes_dir = "~/schemes"
+last_wallpaper = "~/Pictures/Wallpapers/a.png"
+schemes_repo_dir = "~/schemes-repo"
+output_wallpaper_path = "~/data/out/current-wallpaper.png"
+wallpaper_cache_dir = "~/data/cache"
+theme_name = "test-theme"
+default_scheme = "test-scheme"
+"#,
+        )
+        .unwrap();
+
+        let config = Config::load().unwrap();
+        assert_eq!(config.wallpaper_dir, env.root.join("Pictures/Wallpapers"));
+        assert_eq!(config.custom_schemes_dir, env.root.join("schemes"));
+        assert_eq!(
+            config.last_wallpaper,
+            Some(env.root.join("Pictures/Wallpapers/a.png"))
+        );
+        assert_eq!(config.schemes_repo_dir, env.root.join("schemes-repo"));
+        assert_eq!(
+            config.output_wallpaper_path,
+            env.root.join("data/out/current-wallpaper.png")
+        );
+        assert_eq!(config.wallpaper_cache_dir, env.root.join("data/cache"));
+
+        config.save().unwrap();
+        let saved = fs::read_to_string(config_dir.join("config.toml")).unwrap();
+        assert!(!saved.contains("~/"), "config was not normalised:\n{saved}");
+    }
 
     #[test]
     fn gowall_only_implies_wallpaper_features() {

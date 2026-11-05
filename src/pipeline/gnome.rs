@@ -55,7 +55,7 @@ impl GnomeInterface {
     }
 
     pub async fn set_wallpaper(&self, path: &Path) -> Result<()> {
-        let uri = format!("file://{}", path.display());
+        let uri = path_to_file_uri(path);
         self.gsettings_set(
             "org.gnome.desktop.background",
             "picture-uri",
@@ -251,6 +251,21 @@ impl GnomeInterface {
     }
 }
 
+fn path_to_file_uri(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut uri = String::from("file://");
+    for &byte in path.as_os_str().as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
+                uri.push(byte as char);
+            }
+            _ => uri.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    uri
+}
+
 fn parse_wallpaper_uri(raw: &str) -> Option<PathBuf> {
     let raw = raw.trim().trim_matches('\'');
     let rest = raw.strip_prefix("file://")?;
@@ -294,4 +309,32 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_uri_percent_encodes_special_bytes() {
+        assert_eq!(
+            path_to_file_uri(Path::new("/tmp/a b#c%d'é.png")),
+            "file:///tmp/a%20b%23c%25d%27%C3%A9.png"
+        );
+        assert_eq!(
+            path_to_file_uri(Path::new("/tmp/plain-name_1.png")),
+            "file:///tmp/plain-name_1.png"
+        );
+    }
+
+    #[test]
+    fn file_uri_round_trips_through_parser() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("space name #1.png");
+        std::fs::write(&path, b"x").unwrap();
+
+        let uri = path_to_file_uri(&path);
+        assert!(uri.contains("%20"));
+        assert_eq!(parse_wallpaper_uri(&format!("'{uri}'")), Some(path));
+    }
 }

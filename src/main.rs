@@ -127,6 +127,9 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&data_base)?;
     if config.wallpaper_features_enabled() {
         std::fs::create_dir_all(&config.wallpaper_cache_dir)?;
+        if let Some(parent) = config.output_wallpaper_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
     }
     pipeline::gowall::prune_cluts(64);
     pipeline::preview::prune_previews(32);

@@ -250,6 +250,8 @@ preserve_neutrals = true # keep low-chroma colours neutral during hue/sat shifts
 # on_wallpaper_batch_convert = "..."
 ```
 
+A leading `~` or `~/` in any path value is expanded to the current user's home directory when the config is loaded.
+
 | Key | Default | Description |
 |---|---|---|
 | `wallpaper_dir` | `~/Pictures/Wallpapers` | Directory gnomad reads wallpapers from |

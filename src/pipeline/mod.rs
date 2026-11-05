@@ -809,4 +809,57 @@ mod feature_tests {
         );
         assert!(!cache_dir.join("manifest.json").exists());
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn tilde_config_paths_are_expanded_and_uris_encoded() {
+        let env = TestEnv::new();
+        let config_dir = env.root.join(".config/gnomad");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.toml"),
+            r#"
+wallpaper_dir = "~/Pictures/Wallpapers"
+custom_schemes_dir = "~/schemes"
+schemes_repo_dir = "~/schemes-repo"
+output_wallpaper_path = "~/data/out/current-wallpaper.png"
+wallpaper_cache_dir = "~/data/cache"
+theme_name = "test-theme"
+default_scheme = "test-scheme"
+wallpaper_enabled = true
+gowall_only = true
+"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(env.root.join("Pictures/Wallpapers")).unwrap();
+        std::fs::create_dir_all(env.root.join("data/out")).unwrap();
+        let source = env.root.join("Pictures/Wallpapers/space name.png");
+        std::fs::write(&source, b"fake-image").unwrap();
+
+        let config = Config::load().unwrap();
+        assert_eq!(config.wallpaper_dir, env.root.join("Pictures/Wallpapers"));
+        assert_eq!(config.wallpaper_cache_dir, env.root.join("data/cache"));
+
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+        let output = apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        assert_eq!(output, env.root.join("data/out/current-space name.png"));
+        assert!(output.exists());
+        let calls = env.calls();
+        assert!(!calls.contains("~/.local"), "calls:\n{calls}");
+        let picture_calls: Vec<&str> = calls
+            .lines()
+            .filter(|line| line.contains("picture-uri"))
+            .collect();
+        assert!(!picture_calls.is_empty(), "calls:\n{calls}");
+        assert!(
+            picture_calls
+                .iter()
+                .all(|line| line.contains("current-space%20name.png")),
+            "calls:\n{calls}"
+        );
+    }
 }
