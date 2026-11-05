@@ -311,7 +311,7 @@ impl App {
 
     /// Recompute which source/converted images should be visible. Starts a
     /// debounced background conversion when the target changes.
-    fn refresh_previews(&mut self) {
+    pub(crate) fn refresh_previews(&mut self) {
         if !self.config.wallpaper_features_enabled() {
             self.cancel_preview();
             self.source_preview.clear();
@@ -428,7 +428,7 @@ impl App {
         let _ = self.config.save();
     }
 
-    fn render(&mut self, f: &mut Frame, status: &str) {
+    pub(crate) fn render(&mut self, f: &mut Frame, status: &str) {
         // Render the animation full-screen and bail out early — the kitty
         // graphics protocol used by the image preview operates at the pixel
         // level and is not cleared by ratatui's cell buffer, so we must not
@@ -549,7 +549,7 @@ impl App {
         );
     }
 
-    async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
+    pub(crate) async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         if self.tuning_open {
             return Ok(self.handle_tuning_key(key));
         }

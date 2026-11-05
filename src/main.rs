@@ -3,6 +3,8 @@ mod config;
 mod pipeline;
 mod schemes;
 mod state;
+#[cfg(test)]
+mod test_support;
 mod ui;
 
 use anyhow::{Context, Result};
@@ -188,10 +190,16 @@ async fn main() -> Result<()> {
         eprintln!("gnomad: gowall-only mode — Tinty, GTK and Shell theming disabled");
     }
 
-    // Detect terminal graphics protocol before entering raw mode
-    let picker = ratatui_image::picker::Picker::from_query_stdio()
-        .map_err(|e| eprintln!("gnomad: image preview unavailable ({e})"))
-        .ok();
+    // Detect terminal graphics protocol before entering raw mode. The escape
+    // hatch keeps automated PTY tests and non-interactive terminals from
+    // blocking on a graphics query they cannot answer.
+    let picker = if std::env::var_os("GNOMAD_DISABLE_IMAGE_PREVIEW").is_some() {
+        None
+    } else {
+        ratatui_image::picker::Picker::from_query_stdio()
+            .map_err(|e| eprintln!("gnomad: image preview unavailable ({e})"))
+            .ok()
+    };
 
     // Launch TUI
     let mut terminal = ratatui::init();

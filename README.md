@@ -119,7 +119,21 @@ If you use [direnv](https://direnv.net) (ideally with [nix-direnv](https://githu
 
 For per-developer personalization (env vars, aliases, personal tools), copy `.envrc.local.example` to `.envrc.local` — it's gitignored and sourced by `.envrc` after `use flake` (via direnv). `devshell-init` creates it automatically from the example when scaffolding a new repo.
 
-Note that the GNOME integration itself (gsettings, Shell CSS reload, wallpaper set) needs a real GNOME session and won't do anything useful in a bare container/VM — this environment is for building and iterating on the code, not exercising the desktop pipeline end to end.
+### Testing
+
+```bash
+cargo test
+```
+
+The suite has three layers:
+
+- **UI tests** use ratatui's `TestBackend` and drive `App::render` / `App::handle_key` directly. They cover startup, panel switching, search, the tuning overlay, and small-terminal layouts.
+- **Pipeline tests** run the real orchestrators against temporary `HOME`/XDG trees and fake `gowall`, `tinty`, `gsettings`, and `gnome-extensions` executables. They assert full-mode side effects and the gowall-only invariants (no Tinty, CSS, Shell, or colour-scheme writes).
+- **PTY smoke test** (`tests/pty_smoke.rs`) launches the real binary in a pseudo-terminal, asserts it renders, and verifies it exits cleanly on `q`, exercising crossterm/raw-mode/terminal lifecycle paths that `TestBackend` bypasses.
+
+The test harness sets `GNOMAD_DISABLE_IMAGE_PREVIEW=1` so graphics-protocol queries don't block in non-interactive environments.
+
+Note that the GNOME integration itself (gsettings, Shell CSS reload, wallpaper set) needs a real GNOME session and won't do anything useful in a bare container/VM — the tests fake those command surfaces, so they validate gnomad's behaviour without touching the live desktop.
 
 ---
 

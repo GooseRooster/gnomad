@@ -284,3 +284,236 @@ pub async fn apply_wallpaper(
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{test_scheme, TestEnv};
+    use serial_test::serial;
+    use tokio::sync::watch;
+
+    fn test_config(env: &TestEnv, gowall_only: bool) -> Config {
+        let mut config = env.config();
+        config.wallpaper_enabled = true;
+        config.gowall_only = gowall_only;
+        config.wallpaper_cache_dir = env.root.join("data/cache");
+        config.output_wallpaper_path = env.root.join("data/out/current-wallpaper.png");
+        std::fs::create_dir_all(config.output_wallpaper_path.parent().unwrap()).unwrap();
+        config.save().unwrap();
+        config
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn gowall_only_touches_only_gowall_and_wallpaper() {
+        let env = TestEnv::new();
+        let config = test_config(&env, true);
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        let output = apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        assert!(output.exists());
+        let calls = env.calls();
+        assert!(calls.contains("gowall convert"), "calls:\n{calls}");
+        assert!(
+            calls.contains("gsettings set org.gnome.desktop.background picture-uri"),
+            "calls:\n{calls}"
+        );
+        assert!(!calls.contains("tinty"), "calls:\n{calls}");
+        assert!(!calls.contains("color-scheme"), "calls:\n{calls}");
+        assert!(!calls.contains("gnome-extensions"), "calls:\n{calls}");
+        assert!(!env.gtk_css().exists());
+        assert!(!env.shell_css().exists());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn full_mode_runs_the_complete_pipeline() {
+        let env = TestEnv::new();
+        let config = test_config(&env, false);
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        let output = apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        assert!(output.exists());
+        let calls = env.calls();
+        assert!(calls.contains("gowall convert"), "calls:\n{calls}");
+        assert!(
+            calls.contains("tinty apply base16-test-scheme"),
+            "calls:\n{calls}"
+        );
+        assert!(
+            calls.contains("gsettings set org.gnome.desktop.interface color-scheme"),
+            "calls:\n{calls}"
+        );
+        assert!(env.gtk_css().exists());
+        assert!(env.shell_css().exists());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn second_apply_uses_the_wallpaper_cache() {
+        let env = TestEnv::new();
+        let config = test_config(&env, false);
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+
+        let (tx, _rx) = watch::channel(String::new());
+        apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        env.clear_calls();
+        let (tx, _rx) = watch::channel(String::new());
+        apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        let calls = env.calls();
+        assert!(!calls.contains("gowall"), "calls:\n{calls}");
+        assert!(calls.contains("tinty"), "calls:\n{calls}");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn tuning_change_invalidates_the_cache() {
+        let env = TestEnv::new();
+        let mut config = test_config(&env, true);
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+
+        let (tx, _rx) = watch::channel(String::new());
+        apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        env.clear_calls();
+        config.gowall_tuning.hue_shift = 30;
+        let (tx, _rx) = watch::channel(String::new());
+        apply_scheme(&scheme, &config, Some(&source), tx)
+            .await
+            .unwrap();
+
+        assert!(env.calls().contains("gowall"), "calls:\n{}", env.calls());
+    }
+}
+
+#[cfg(test)]
+mod feature_tests {
+    use super::*;
+    use crate::test_support::{test_scheme, TestEnv};
+    use serial_test::serial;
+    use tokio::sync::watch;
+
+    fn test_config(env: &TestEnv) -> Config {
+        let mut config = env.config();
+        config.wallpaper_enabled = true;
+        config.gowall_only = true;
+        config.wallpaper_cache_dir = env.root.join("data/cache");
+        config.output_wallpaper_path = env.root.join("data/out/current-wallpaper.png");
+        std::fs::create_dir_all(config.output_wallpaper_path.parent().unwrap()).unwrap();
+        config.save().unwrap();
+        config
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn batch_convert_populates_cache_and_manifest() {
+        let env = TestEnv::new();
+        let config = test_config(&env);
+        let a = env.wallpaper("a.jpg");
+        let b = env.wallpaper("b.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        wallpaper_cache::batch_convert(
+            &scheme,
+            &config.gowall_tuning,
+            &config.wallpaper_dir,
+            &config.wallpaper_cache_dir,
+            false,
+            None,
+            tx,
+        )
+        .await
+        .unwrap();
+
+        let cache_dir = wallpaper_cache::scheme_cache_dir(
+            &config.wallpaper_cache_dir,
+            &scheme,
+            &config.wallpaper_dir,
+            &config.gowall_tuning,
+        );
+        assert!(wallpaper_cache::is_cached(
+            &a,
+            &cache_dir,
+            &scheme,
+            &config.gowall_tuning
+        ));
+        assert!(wallpaper_cache::is_cached(
+            &b,
+            &cache_dir,
+            &scheme,
+            &config.gowall_tuning
+        ));
+        assert!(env.calls().contains("gowall convert --dir"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn slideshow_generates_xml_from_cached_images() {
+        let env = TestEnv::new();
+        let config = test_config(&env);
+        env.wallpaper("a.jpg");
+        env.wallpaper("b.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        let xml = slideshow::create_slideshow(
+            &config.wallpaper_dir,
+            &config.wallpaper_cache_dir,
+            &scheme.slug,
+            &scheme,
+            &config.gowall_tuning,
+            10,
+            20,
+            None,
+            tx,
+        )
+        .await
+        .unwrap();
+
+        assert!(xml.exists());
+        let content = std::fs::read_to_string(xml).unwrap();
+        assert!(content.contains("<background>"));
+        assert!(content.contains("<static>"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn applying_a_wallpaper_uses_the_active_scheme() {
+        let env = TestEnv::new();
+        let config = test_config(&env);
+        let source = env.wallpaper("sample.jpg");
+        let scheme = test_scheme();
+        let (tx, _rx) = watch::channel(String::new());
+
+        let output = apply_wallpaper(&source, Some(&scheme), &config, tx)
+            .await
+            .unwrap();
+
+        assert!(output.exists());
+        assert!(env.calls().contains("gowall convert"));
+        assert!(env
+            .calls()
+            .contains("gsettings set org.gnome.desktop.background picture-uri"));
+    }
+}

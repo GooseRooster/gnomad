@@ -14,11 +14,14 @@ const GSETTINGS_POISON_VARS: &[&str] = &["GSETTINGS_BACKEND", "GIO_MODULE_DIR"];
 /// the wrong dconf database, so we must pin to the distro's copy on such setups.
 /// On systems without `/usr/bin/gsettings` (notably NixOS, where everything lives
 /// in the store), fall back to PATH resolution, which picks up the wrapped glib.
-fn gsettings_bin() -> &'static str {
+fn gsettings_bin() -> String {
+    if let Ok(bin) = std::env::var("GNOMAD_GSETTINGS_BIN") {
+        return bin;
+    }
     if Path::new("/usr/bin/gsettings").exists() {
-        "/usr/bin/gsettings"
+        "/usr/bin/gsettings".to_string()
     } else {
-        "gsettings"
+        "gsettings".to_string()
     }
 }
 

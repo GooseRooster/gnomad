@@ -58,6 +58,23 @@ about the others. The TUI is intentionally thin — it drives state, not work.
 Headless entrypoints (`--apply <slug>`, `--update-schemes`,
 `--populate-json-scheme`) share the same pipeline; the TUI is just one client.
 
+## Testing
+
+The suite is layered so most of the UI and pipeline can be exercised without a
+live GNOME session:
+
+- `src/test_support.rs` provides a `TestBackend` UI harness (`TestApp`) and an
+  isolated environment (`TestEnv`) with temporary `HOME`/XDG dirs and fake
+  `gowall`, `tinty`, `gsettings`, and `gnome-extensions` executables.
+- UI tests drive `App::render` and `App::handle_key` directly and assert on the
+  terminal buffer. Image protocols are skipped via
+  `GNOMAD_DISABLE_IMAGE_PREVIEW=1`; preview state/paths are tested separately.
+- Pipeline tests run the real orchestrators against the fake commands and
+  assert filesystem side effects, cache manifests, full-mode writes, and the
+  gowall-only invariants.
+- `tests/pty_smoke.rs` launches the real binary in a PTY to cover crossterm,
+  raw mode, alternate-screen setup, and clean shutdown.
+
 ## Scheme sources
 
 Schemes come from the upstream [`tinted-theming/schemes`] git repo, cloned on
